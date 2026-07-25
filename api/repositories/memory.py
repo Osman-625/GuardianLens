@@ -44,4 +44,6 @@ class InMemoryAssessmentRepository:
 
     def list_all_assessments(self) -> list[AssessmentRecord]:
         with self._lock:
-            return sorted(self._assessments.values(), key=lambda item: item.created_at, reverse=True)
+            return sorted(
+                self._assessments.values(), key=lambda item: item.created_at, reverse=True
+            )

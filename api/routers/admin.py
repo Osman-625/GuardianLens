@@ -72,7 +72,9 @@ def export_records(
     writer = csv.writer(output)
     if dataset == "study":
         writer.writerow(["status", "message"])
-        writer.writerow(["empty", "Study rows are human-created only and are not generated in stub mode."])
+        writer.writerow(
+            ["empty", "Study rows are human-created only and are not generated in stub mode."]
+        )
     else:
         writer.writerow(
             [

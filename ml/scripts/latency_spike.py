@@ -5,8 +5,9 @@ import importlib
 import json
 import statistics
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 
 class LatencyAdapter(Protocol):
@@ -45,7 +46,10 @@ def load_adapter(spec: str | None) -> tuple[LatencyAdapter, bool]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="GuardianLens CPU latency spike harness")
-    parser.add_argument("--adapter", help="Python module and factory, for example guardianlens_real:build_adapter")
+    parser.add_argument(
+        "--adapter",
+        help="Python module and factory, for example guardianlens_real:build_adapter",
+    )
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--output", type=Path, default=Path("docs/evidence/latency-spike.json"))
     args = parser.parse_args()

@@ -16,8 +16,8 @@ from api.errors import AppError
 from api.models.domain import AssessmentRecord, SellerInput
 from api.schemas import (
     AssessAccepted,
-    AssessmentStatus,
     AssessmentResultResponse,
+    AssessmentStatus,
     AssessmentStatusResponse,
     HistoryItem,
 )
@@ -171,7 +171,9 @@ def get_result(request: Request, assessment_id: UUID) -> AssessmentResultRespons
     assessment = require_owned_assessment(request, assessment_id)
     if assessment.result is None:
         if assessment.status.value == "failed":
-            raise AppError(409, "assessment_failed", assessment.error_message or "Assessment failed.")
+            raise AppError(
+                409, "assessment_failed", assessment.error_message or "Assessment failed."
+            )
         raise AppError(409, "result_not_ready", "The assessment result is not ready yet.")
     return assessment.result
 

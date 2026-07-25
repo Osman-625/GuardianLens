@@ -69,7 +69,9 @@ def run_development_assessment(
 
         assessment.stage = PipelineStage.TEXTUAL
         repository.save_assessment(assessment)
-        textual = run_textual_stub(assessment.title_for_inference, assessment.description_for_inference)
+        textual = run_textual_stub(
+            assessment.title_for_inference, assessment.description_for_inference
+        )
 
         assessment.stage = PipelineStage.BEHAVIOURAL
         repository.save_assessment(assessment)
@@ -121,7 +123,9 @@ def run_development_assessment(
         assessment.status = AssessmentStatus.FAILED
         assessment.stage = None
         assessment.error_code = "pipeline_failed"
-        assessment.error_message = "The check could not be completed. Try again with the saved form."
+        assessment.error_message = (
+            "The check could not be completed. Try again with the saved form."
+        )
         assessment.title_for_inference = ""
         assessment.description_for_inference = ""
         for image in assessment.images:

@@ -92,12 +92,15 @@ def run_textual_stub(title: str, description: str) -> SignalOutput:
     matched = [(phrase, weight) for phrase, weight in warning_phrases.items() if phrase in text]
     probability = _bounded(0.20 + sum(weight for _, weight in matched))
     reasons: list[SignalReason] = []
-    for rank, (phrase, _) in enumerate(sorted(matched, key=lambda item: item[1], reverse=True)[:3], 1):
+    ranked = sorted(matched, key=lambda item: item[1], reverse=True)[:3]
+    for rank, (phrase, _) in enumerate(ranked, 1):
         reasons.append(
             SignalReason(
                 feature_key=f"dev_phrase_{phrase.replace(' ', '_')}",
                 direction="raises",
-                display_text=f'The development stub found the phrase "{phrase}" in the listing text.',
+                display_text=(
+                    f'The development stub found the phrase "{phrase}" in the listing text.'
+                ),
                 rank=rank,
             )
         )
@@ -169,7 +172,9 @@ def run_behavioural_stub(seller: SellerInput, price: float) -> SignalOutput:
             SignalReason(
                 feature_key="dev_many_active_listings",
                 direction="raises",
-                display_text="The visible account has an unusually large number of active listings.",
+                display_text=(
+                    "The visible account has an unusually large number of active listings."
+                ),
                 rank=len(reasons) + 1,
             )
         )
@@ -179,7 +184,9 @@ def run_behavioural_stub(seller: SellerInput, price: float) -> SignalOutput:
             SignalReason(
                 feature_key="dev_zero_price",
                 direction="raises",
-                display_text="The entered listing price is zero, so the price signal is less useful.",
+                display_text=(
+                    "The entered listing price is zero, so the price signal is less useful."
+                ),
                 rank=len(reasons) + 1,
             )
         )

@@ -35,7 +35,7 @@ class BundleManifest:
     development_stub: bool = False
 
     @classmethod
-    def load(cls, path: Path) -> "BundleManifest":
+    def load(cls, path: Path) -> BundleManifest:
         raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         boundaries = BandBoundaries(**raw.pop("band_boundaries"))
         manifest = cls(band_boundaries=boundaries, **raw)
@@ -47,7 +47,9 @@ class BundleManifest:
             raise ValueError("Bundle label is required")
         self.band_boundaries.validate()
         for name, digest in self.artifact_hashes.items():
-            if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
                 raise ValueError(f"Invalid SHA-256 digest for {name}")
         if len(self.dependency_lock_hash) != 64:
             raise ValueError("dependency_lock_hash must be a SHA-256 digest")

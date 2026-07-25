@@ -92,7 +92,8 @@ def test_unsupported_language_preserves_field_error_envelope() -> None:
             "error": {
                 "code": "unsupported_language",
                 "message": (
-                    "Chinese-dominant listings are outside this prototype's supported language scope."
+                    "Chinese-dominant listings are outside this prototype's "
+                    "supported language scope."
                 ),
                 "field": "description",
             }

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = {".git", ".venv", "node_modules", ".next", "runtime"}
-TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".json", ".yaml", ".yml", ".md", ".sql", ".txt", ".example"}
+TEXT_SUFFIXES = {
+    ".py", ".ts", ".tsx", ".js", ".mjs", ".json",
+    ".yaml", ".yml", ".md", ".sql", ".txt", ".example",
+}
 PATTERNS = {
-    "Supabase service-role JWT": re.compile(r"eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}"),
+    "Supabase service-role JWT": re.compile(
+        r"eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}"
+    ),
     "Generic private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    "Common API key assignment": re.compile(r"(?i)(api[_-]?key|secret[_-]?key|service[_-]?role[_-]?key)\s*[=:]\s*['\"][^'\"]{12,}['\"]"),
+    "Common API key assignment": re.compile(
+        r"(?i)(api[_-]?key|secret[_-]?key|service[_-]?role[_-]?key)\s*[=:]\s*['\"][^'\"]{12,}['\"]"
+    ),
 }
 
 

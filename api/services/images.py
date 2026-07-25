@@ -65,7 +65,11 @@ async def validate_and_reencode_images(
                     clean = opened.convert("RGB")
                     clean.save(output, format="JPEG", quality=92, optimize=True)
                 elif target == "PNG":
-                    clean = opened.convert("RGBA") if opened.mode in {"RGBA", "LA"} else opened.convert("RGB")
+                    clean = (
+                        opened.convert("RGBA")
+                        if opened.mode in {"RGBA", "LA"}
+                        else opened.convert("RGB")
+                    )
                     clean.save(output, format="PNG", optimize=True)
                 else:
                     clean = opened.convert("RGB")
