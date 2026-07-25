@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 
 from fastapi.testclient import TestClient
+from httpx import Response
 from PIL import Image
 
 from api.main import create_app
@@ -14,7 +15,7 @@ def make_image(size: tuple[int, int] = (640, 480)) -> bytes:
     return buffer.getvalue()
 
 
-def submit(client: TestClient, **overrides: str):
+def submit(client: TestClient, **overrides: str) -> Response:
     data = {
         "platform": "carousell",
         "title": "Used laptop",

@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/v1", tags=["assessments"])
 
 
 def _optional_int(value: str | None, field: str) -> int | None:
-    if value in (None, ""):
+    if value is None or value == "":
         return None
     try:
         parsed = int(value)
@@ -42,7 +42,7 @@ def _optional_int(value: str | None, field: str) -> int | None:
 
 
 def _optional_rating(value: str | None) -> float | None:
-    if value in (None, ""):
+    if value is None or value == "":
         return None
     try:
         parsed = float(value)

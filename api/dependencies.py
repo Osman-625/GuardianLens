@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import Request
 
 from api.errors import AppError
+from api.models.domain import AssessmentRecord
 from api.repositories.base import AssessmentRepository
 from api.services.rate_limit import SessionRateLimiter
 from api.settings import Settings
@@ -44,7 +45,7 @@ def parse_session(request: Request, *, required: bool = True) -> UUID | None:
     return session_id
 
 
-def require_owned_assessment(request: Request, assessment_id: UUID):
+def require_owned_assessment(request: Request, assessment_id: UUID) -> AssessmentRecord:
     session_id = parse_session(request, required=True)
     repository = get_repository(request)
     assessment = repository.get_assessment(assessment_id)
