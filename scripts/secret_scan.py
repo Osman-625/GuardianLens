@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SKIP_PARTS = {".git", ".venv", "node_modules", ".next", "runtime"}
+TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".json", ".yaml", ".yml", ".md", ".sql", ".txt", ".example"}
+PATTERNS = {
+    "Supabase service-role JWT": re.compile(r"eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}"),
+    "Generic private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    "Common API key assignment": re.compile(r"(?i)(api[_-]?key|secret[_-]?key|service[_-]?role[_-]?key)\s*[=:]\s*['\"][^'\"]{12,}['\"]"),
+}
+
+
+def iter_files():
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or any(part in SKIP_PARTS for part in path.parts):
+            continue
+        if path.name == ".env.example" or path.suffix in TEXT_SUFFIXES:
+            yield path
+
+
+def main() -> int:
+    findings: list[str] = []
+    for path in iter_files():
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for name, pattern in PATTERNS.items():
+            if pattern.search(text):
+                findings.append(f"{path.relative_to(ROOT)}: {name}")
+    if findings:
+        print("Potential secrets found:")
+        print("\n".join(findings))
+        return 1
+    print("Secret scan passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
