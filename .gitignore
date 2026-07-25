@@ -36,4 +36,7 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+.tmp/
 
+# TypeScript build cache
+*.tsbuildinfo
