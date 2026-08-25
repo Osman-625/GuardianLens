@@ -117,6 +117,85 @@ def test_all_provider_adapters_share_normalized_schema_and_sdk_options(tmp_path,
     assert all(call["timeout"] == settings.request_timeout_seconds for call in constructor_calls)
 
 
+def test_extractors_include_listing_source_url_in_prompt(tmp_path, monkeypatch):
+    raw = json.dumps({"title": "Fixture"})
+    calls = {"responses": [], "chat": [], "messages": []}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            def create_response(**call_kwargs):
+                calls["responses"].append(call_kwargs)
+                return SimpleNamespace(output_text=raw)
+
+            def create_chat(**call_kwargs):
+                calls["chat"].append(call_kwargs)
+                message = SimpleNamespace(content=raw)
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+            self.responses = SimpleNamespace(create=create_response)
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=create_chat))
+
+    class FakeAnthropic:
+        def __init__(self, **kwargs):
+            def create_message(**call_kwargs):
+                calls["messages"].append(call_kwargs)
+                block = SimpleNamespace(type="text", text=raw)
+                return SimpleNamespace(content=[block])
+
+            self.messages = SimpleNamespace(create=create_message)
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic))
+    screenshot = tmp_path / "listing.jpg"
+    screenshot.write_bytes(b"fixture")
+
+    from guardianlens.openai_extractor import OpenAIExtractor
+    from guardianlens.anthropic_extractor import AnthropicExtractor
+    from guardianlens.openrouter_extractor import OpenRouterExtractor
+    from guardianlens.gemini_extractor import GeminiExtractor
+
+    url = "https://www.carousell.com.my/p/apple-iphone-13-pro-max-256gb-1234567890/"
+    with (
+        setting("openai_api_key", "fixture"),
+        setting("anthropic_api_key", "fixture"),
+        setting("openrouter_api_key", "fixture"),
+        setting("gemini_api_key", "fixture"),
+    ):
+        OpenAIExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
+        AnthropicExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
+        OpenRouterExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
+        GeminiExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
+
+    assert url in calls["responses"][0]["input"][0]["content"][0]["text"]
+    assert url in calls["messages"][0]["messages"][0]["content"][1]["text"]
+    assert len(calls["chat"]) == 2
+    assert all(url in call["messages"][1]["content"][0]["text"] for call in calls["chat"])
+
+
+def test_extractor_prompt_omits_url_line_when_source_url_not_given(tmp_path, monkeypatch):
+    raw = json.dumps({"title": "Fixture"})
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            def create_response(**call_kwargs):
+                captured["input"] = call_kwargs["input"]
+                return SimpleNamespace(output_text=raw)
+
+            self.responses = SimpleNamespace(create=create_response)
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    screenshot = tmp_path / "listing.jpg"
+    screenshot.write_bytes(b"fixture")
+
+    from guardianlens.openai_extractor import OpenAIExtractor
+
+    with setting("openai_api_key", "fixture"):
+        OpenAIExtractor().extract(screenshot, "carousell", "iPhone", [])
+
+    assert "Listing URL: \n" in captured["input"][0]["content"][0]["text"]
+
+
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "openrouter", "gemini"])
 def test_active_provider_controls_default_factory(provider, monkeypatch):
     import guardianlens.processor as processor

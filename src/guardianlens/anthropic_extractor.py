@@ -19,11 +19,20 @@ class AnthropicExtractor:
         self.model = settings.anthropic_model
         self.prompt_version = settings.anthropic_prompt_version
 
-    def extract(self, screenshot_path: Path, platform: str, page_title: str | None, categories: list[str]) -> dict:
+    def extract(
+        self,
+        screenshot_path: Path,
+        platform: str,
+        page_title: str | None,
+        categories: list[str],
+        source_url: str | None = None,
+    ) -> dict:
         media_type = "image/jpeg" if screenshot_path.suffix.lower() in {".jpg", ".jpeg"} else f"image/{screenshot_path.suffix.lower().lstrip('.')}"
         image_b64 = base64.standard_b64encode(screenshot_path.read_bytes()).decode("ascii")
         prompt = (
-            f"Platform: {platform}\nPage title: {page_title or ''}\n"
+            f"Platform: {platform}\nPage title: {page_title or ''}\nListing URL: {source_url or ''}\n"
+            "The listing URL is reference context only, not visual evidence -- do not treat it as more "
+            "reliable than the screenshot, but use its slug/id to cross-check the title and identity.\n"
             f"Allowed categories: {', '.join(categories)}\n"
             f"Required JSON keys and types: {json.dumps(EXTRACTION_SCHEMA)}\n"
             "Return only one JSON object and no markdown fences."

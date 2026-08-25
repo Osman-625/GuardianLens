@@ -84,3 +84,49 @@ if (!detail.includes('page_title') || detail.includes('[object Object]')) proces
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_image_directory_key_groups_gallery_photos_and_excludes_other_folders():
+    # collectPageData() uses this to trust small gallery thumbnails (some listing sites render
+    # every photo but the selected one far under the 160px floor) without trusting arbitrary small
+    # images elsewhere on the page, by requiring they share a CDN folder with an already-qualified
+    # full-size photo.
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+const key = background.imageDirectoryKey;
+const mainPhoto = key('https://cdn.rnudah.com/images/plain/96a782bdec083ed7ab6c85e-2999038366139536864.jpg');
+const thumbnail = key('https://cdn.rnudah.com/images/plain/b5e7b6d4a571a3e24542c9-2999033887719151072.jpg?w=80');
+const unrelatedGrid = key('https://cdn.rnudah.com/grids/plain/96a782bdec083ed7ab6c85e-2999038366139536864.jpg');
+const differentHost = key('https://mcdn.mudah.my/images/plain/96a782bdec083ed7ab6c85e-2999038366139536864.jpg');
+const upperCaseHost = key('https://CDN.rnudah.com/images/plain/other-file.jpg');
+if (mainPhoto !== thumbnail) process.exit(11);
+if (mainPhoto === unrelatedGrid) process.exit(12);
+if (mainPhoto === differentHost) process.exit(13);
+if (mainPhoto !== upperCaseHost) process.exit(14);
+if (key('not a url') !== null) process.exit(15);
+if (key('') !== null) process.exit(16);
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_extension_background_js_syntax_is_valid():
+    from guardianlens.config import ROOT
+
+    result = subprocess.run(
+        ["node", "--check", str(ROOT / "extension" / "background.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout

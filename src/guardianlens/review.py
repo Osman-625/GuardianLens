@@ -13,6 +13,7 @@ from .images import validate_image_bytes
 
 EDITABLE = ["title","description","category","condition","price","currency","location_state","location_city","account_age_days","seller_rating","review_count","active_listing_count","language"]
 PII_FREE_TEXT_FIELDS = ("title", "description", "condition", "location_state", "location_city", "language")
+SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
 REVIEWABLE = {"ready_for_review","needs_attention","under_review","skipped","flagged"}
 
 
@@ -255,6 +256,8 @@ def _approve_in_transaction(con, listing_id: str) -> None:
     if row["category"] not in categories:
         raise ValueError("category is not in configured category list")
     _verify_product_images(con, listing_id, row["platform"])
+    if all(row[key] in {None, ""} for key in SELLER_SIGNAL_FIELDS):
+        raise ValueError("at least one seller/behavioural field is required for approval")
     duplicate = con.execute(
         """
         SELECT listing_id FROM listings

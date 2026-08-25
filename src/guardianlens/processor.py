@@ -17,6 +17,7 @@ from .images import download_image, validate_image_bytes, persist_product_image
 
 
 REQUIRED_FIELDS = ("title", "category", "price", "currency")
+SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
 PII_FREE_TEXT_FIELDS = (
     "title",
     "description",
@@ -152,6 +153,7 @@ def _extract_with_retries(
                     row["platform"],
                     row["page_title"],
                     categories,
+                    source_url=row["source_url"],
                 )
             )
             break
@@ -372,6 +374,14 @@ def process_listing(
                 if extracted.get(key) in {None, ""}:
                     add_warning(con, listing_id, "missing_field", f"Missing required field: {key}")
                     needs_attention = True
+            if all(extracted.get(key) in {None, ""} for key in SELLER_SIGNAL_FIELDS):
+                add_warning(
+                    con,
+                    listing_id,
+                    "missing_field",
+                    "No seller/behavioural signal extracted (account age, rating, review count, or active listings)",
+                )
+                needs_attention = True
             residual = residual_pii(
                 "\n".join(str(extracted.get(key) or "") for key in PII_FREE_TEXT_FIELDS)
             )

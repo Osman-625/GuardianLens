@@ -14,6 +14,7 @@ STALE_INTERMEDIATE_SECONDS = 60 * 60
 INTERMEDIATE_STATES = {"processing", "ai_extracted", "validating"}
 ACTIVE_RUN_STATES = {"running", "paused", "stopping"}
 PII_FREE_TEXT_FIELDS = ("title", "description", "condition", "location_state", "location_city", "language")
+SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
 KNOWN_LISTING_STATES = set(TRANSITIONS) | {state for targets in TRANSITIONS.values() for state in targets}
 
 
@@ -111,6 +112,8 @@ def data_integrity_report() -> dict:
             missing = [key for key in required_approved if listing[key] in {None, ""}]
             if missing:
                 add("approved_missing_required_fields", listing_id=listing_id, fields=missing)
+            if all(listing[key] in {None, ""} for key in SELLER_SIGNAL_FIELDS):
+                add("approved_missing_seller_signal", listing_id=listing_id)
             if listing["category"] not in configured_categories:
                 add("approved_invalid_category", listing_id=listing_id, category=listing["category"])
             provenance_missing = [
@@ -228,7 +231,7 @@ def data_integrity_report() -> dict:
             disk_images = {
                 path.resolve()
                 for path in image_root.rglob("*")
-                if path.is_file()
+                if path.is_file() and path.name != ".gitkeep"
             }
             for path in sorted(disk_images - db_image_paths):
                 add("orphan_product_image_path", path=str(path))
@@ -290,13 +293,15 @@ def data_integrity_report() -> dict:
 
         if screenshot_root.exists():
             for path in sorted(
-                item.resolve() for item in screenshot_root.rglob("*") if item.is_file()
+                item.resolve() for item in screenshot_root.rglob("*")
+                if item.is_file() and item.name != ".gitkeep"
             ):
                 if path not in referenced_screenshots:
                     add("orphan_private_screenshot_path", path=str(path))
         if staging_root.exists():
             for path in sorted(
-                item.resolve() for item in staging_root.rglob("*") if item.is_file()
+                item.resolve() for item in staging_root.rglob("*")
+                if item.is_file() and item.name != ".gitkeep"
             ):
                 if path not in referenced_staging:
                     add("orphan_private_staging_path", path=str(path))

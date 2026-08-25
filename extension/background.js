@@ -56,6 +56,19 @@ function listingIdFromUrl(platform, url) {
   }
 }
 
+// Groups an image URL by "host + directory" so a small gallery thumbnail can be matched back to
+// a full-size photo served from the same CDN folder, without depending on any site's CSS classes.
+function imageDirectoryKey(url) {
+  try {
+    const parsed = new URL(url);
+    const lastSlash = parsed.pathname.lastIndexOf('/');
+    const directory = lastSlash >= 0 ? parsed.pathname.slice(0, lastSlash + 1) : parsed.pathname;
+    return `${parsed.hostname.toLowerCase()}${directory}`;
+  } catch (_) {
+    return null;
+  }
+}
+
 function collectPageData() {
   const normalizeText = value => (value || '').replace(/\s+/g, ' ').trim();
   const genericHeadings = new Set([
@@ -142,22 +155,51 @@ function collectPageData() {
     'main img, [role="main"] img, [data-testid*="gallery" i] img, [class*="gallery" i] img'
   )];
   const imagePool = scopedImages.length ? scopedImages : [...document.images];
-  const domImageUrls = imagePool.filter(img => {
-    const rect = img.getBoundingClientRect();
-    const style = getComputedStyle(img);
-    return style.display !== 'none'
-      && style.visibility !== 'hidden'
-      && rect.width >= 160
-      && rect.height >= 160
-      && rect.bottom >= 0
-      && rect.top <= innerHeight * 3;
-  }).map(img => img.currentSrc || img.src).filter(url => {
+
+  // Duplicated from the top-level imageDirectoryKey: chrome.scripting's func-injection serializes
+  // only this function's own body (closures over background.js's other top-level helpers are
+  // dropped), so everything collectPageData needs must be defined inside it. Keep both in sync.
+  const imageDirectoryKey = url => {
     try {
-      return new URL(url, location.href).protocol === 'https:';
+      const parsed = new URL(url);
+      const lastSlash = parsed.pathname.lastIndexOf('/');
+      const directory = lastSlash >= 0 ? parsed.pathname.slice(0, lastSlash + 1) : parsed.pathname;
+      return `${parsed.hostname.toLowerCase()}${directory}`;
     } catch (_) {
-      return false;
+      return null;
     }
-  }).map(url => new URL(url, location.href).href);
+  };
+
+  const imageCandidates = imagePool.filter(img => {
+    const style = getComputedStyle(img);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = img.getBoundingClientRect();
+    return rect.bottom >= 0 && rect.top <= innerHeight * 3;
+  }).map(img => {
+    const raw = img.currentSrc || img.src;
+    const rect = img.getBoundingClientRect();
+    let url = null;
+    if (raw && !/\.svg(?:[?#]|$)/i.test(raw)) {
+      try {
+        const resolved = new URL(raw, location.href);
+        if (resolved.protocol === 'https:') url = resolved.href;
+      } catch (_) {}
+    }
+    return {url, width: rect.width, height: rect.height};
+  }).filter(item => item.url);
+
+  const largeImages = imageCandidates.filter(item => item.width >= 160 && item.height >= 160);
+  const galleryDirectories = new Set(largeImages.map(item => imageDirectoryKey(item.url)).filter(Boolean));
+  // A product gallery commonly renders every photo except the one currently selected as a small
+  // thumbnail well under 160px. Only trust those small images when they share a CDN directory with
+  // an already-qualified full-size photo, so stray icons or unrelated thumbnails elsewhere on the
+  // page (e.g. a "related listings" strip) are not swept in by lowering the size floor everywhere.
+  const thumbnailImages = galleryDirectories.size ? imageCandidates.filter(item =>
+    item.width >= 48 && item.height >= 48
+    && !(item.width >= 160 && item.height >= 160)
+    && galleryDirectories.has(imageDirectoryKey(item.url))
+  ) : [];
+  const domImageUrls = [...largeImages, ...thumbnailImages].map(item => item.url);
 
   const imageUrls = [...new Set([...structuredImageUrls, ...domImageUrls])].slice(0, 12);
   return {
@@ -176,6 +218,7 @@ function collectPageData() {
 if (typeof module !== 'undefined') {
   module.exports = {
     detectPlatform,
+    imageDirectoryKey,
     listingIdFromUrl,
     normalizeLocalServer,
     safeApiErrorDetail,

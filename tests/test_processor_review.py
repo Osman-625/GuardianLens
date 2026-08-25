@@ -37,6 +37,20 @@ def test_missing_image_goes_needs_attention_and_cannot_approve(isolated):
     begin_review(r['listing_id'])
     with pytest.raises(ValueError,match='product image'): approve(r['listing_id'])
 
+def test_missing_seller_signal_goes_needs_attention_and_cannot_approve(isolated, monkeypatch):
+    monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=123))
+    r=make_capture()
+    no_seller_signal = {
+        'title':'Fixture Product','description':'Fixture description','category':'Audio','condition':'Used',
+        'price':900,'currency':'MYR','location_state':'Selangor','location_city':None,
+        'account_age_days':None,'seller_rating':None,'review_count':None,'active_listing_count':None,'language':'en',
+    }
+    out=process_listing(r['listing_id'],MockExtractor(no_seller_signal)); assert out['status']=='needs_attention'
+    c=connect(); warning=c.execute("SELECT warning_type,message FROM warnings WHERE listing_id=? AND message LIKE '%seller/behavioural%'",(r['listing_id'],)).fetchone(); c.close()
+    assert warning is not None
+    begin_review(r['listing_id'])
+    with pytest.raises(ValueError,match='seller/behavioural'): approve(r['listing_id'])
+
 def test_ai_invalid_output_moves_ai_failed(isolated):
     r=make_capture()
     bad=MockExtractor({'title':'x','confidence':0.9})
@@ -114,6 +128,22 @@ def test_review_session_timing_is_recorded(isolated, monkeypatch):
     r=make_capture(suffix='24');process_listing(r['listing_id'],MockExtractor());begin_review(r['listing_id']);action(r['listing_id'],'skipped')
     c=connect();row=c.execute("SELECT finished_at,duration_seconds FROM review_actions WHERE listing_id=? AND action='review_session' ORDER BY created_at DESC LIMIT 1",(r['listing_id'],)).fetchone();c.close()
     assert row['finished_at'] is not None and row['duration_seconds'] is not None
+
+def test_process_listing_forwards_captured_source_url_to_extractor(isolated, monkeypatch):
+    monkeypatch.setattr('guardianlens.processor.download_image', lambda u: image_bytes((400, 300), value=105))
+    r = make_capture(suffix='51')
+
+    class SpyExtractor(MockExtractor):
+        received = {}
+
+        def extract(self, screenshot_path, platform, page_title, categories, source_url=None):
+            SpyExtractor.received['source_url'] = source_url
+            return super().extract(screenshot_path, platform, page_title, categories, source_url)
+
+    process_listing(r['listing_id'], SpyExtractor())
+    assert SpyExtractor.received['source_url'] == get_listing(r['listing_id'])['source_url']
+    assert SpyExtractor.received['source_url'].startswith('https://www.carousell.com.my/p/test-51-')
+
 
 def test_near_duplicate_image_is_warning_not_auto_reject(isolated, monkeypatch):
     from guardianlens.db import connect

@@ -31,7 +31,14 @@ class Extractor(Protocol):
     provider: str
     model: str
     prompt_version: str
-    def extract(self, screenshot_path: Path, platform: str, page_title: str | None, categories: list[str]) -> dict: ...
+    def extract(
+        self,
+        screenshot_path: Path,
+        platform: str,
+        page_title: str | None,
+        categories: list[str],
+        source_url: str | None = None,
+    ) -> dict: ...
 
 
 class InvalidExtractionResponse(ValueError):
