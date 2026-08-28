@@ -7,17 +7,21 @@ import subprocess
 import pytest
 
 
-def test_extension_manifest_is_manual_and_least_privilege(isolated):
+def test_extension_manifest_scopes_manual_and_replay_permissions_to_supported_hosts(isolated):
     manifest = json.loads((isolated / "extension" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["manifest_version"] == 3
-    assert set(manifest["permissions"]) == {"activeTab", "scripting", "storage"}
+    assert set(manifest["permissions"]) == {"activeTab", "alarms", "scripting", "storage", "tabs"}
     assert set(manifest["host_permissions"]) == {
         "http://127.0.0.1/*",
         "http://localhost/*",
+        "https://carousell.com.my/*",
+        "https://www.carousell.com.my/*",
+        "https://mudah.my/*",
+        "https://www.mudah.my/*",
     }
     serialized = json.dumps(manifest)
     assert "<all_urls>" not in serialized
-    assert "tabs" not in manifest["permissions"]
+    assert "https://*." not in serialized
 
 
 def test_popup_has_accessible_async_status(isolated):
@@ -117,6 +121,63 @@ if (key('') !== null) process.exit(16);
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_collect_visible_text_is_exported_for_seller_capture():
+    # collectVisibleText is injected into the seller/profile tab via chrome.scripting.executeScript
+    # (same mechanism as collectPageData for the listing page); this only asserts it is present and
+    # exported for that injection, since document/location are unavailable outside a real page.
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+if (typeof background.collectVisibleText !== 'function') process.exit(41);
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_replay_page_states_are_explicit_and_manual_capture_helper_remains():
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+const valid = {
+  source_url: 'https://www.carousell.com.my/p/example-123456/',
+  page_state: 'candidate',
+  image_urls: ['https://images.example.test/item.jpg'],
+  listing_evidence: {h1_text: 'Example phone', has_price_signal: true},
+};
+if (background.capturePageState(valid, 'carousell') !== 'ready') process.exit(51);
+if (background.capturePageState({...valid, page_state: 'captcha'}, 'carousell') !== 'captcha') process.exit(52);
+if (background.capturePageState({...valid, page_state: 'login_required'}, 'carousell') !== 'login_required') process.exit(53);
+if (background.capturePageState({...valid, page_state: 'listing_unavailable'}, 'carousell') !== 'listing_unavailable') process.exit(54);
+if (background.capturePageState({...valid, source_url: 'https://www.mudah.my/example-123456.htm'}, 'carousell') !== 'invalid_listing_page') process.exit(55);
+if (background.classifyCaptureFailure(new Error('Timed out waiting')).status !== 'capture_timeout') process.exit(56);
+if (background.classifyCaptureFailure(new Error('Cloudflare access denied')).status !== 'access_denied') process.exit(57);
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+    source = background_path.read_text(encoding="utf-8")
+    assert "guardianlens.capture'" in source
+    assert "guardianlens.captureSeller'" in source
+    assert "'/api/replay/claim'" in source
+    assert "captureListingTab" in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")

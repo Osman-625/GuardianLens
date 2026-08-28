@@ -9,7 +9,7 @@
   <div>
     <p class="eyebrow">Human verification</p>
     <h1>{{ item.title or item.page_title or 'Review listing' }}</h1>
-    <p>{{ item.platform|title }} · <span class="status">{{ item.status }}</span> · captured {{ item.captured_at }}</p>
+    <p>{{ item.platform|title }} · {{ 'CSV batch replay' if item.capture_source == 'csv_batch' else 'Manual extension' }} · <span class="status">{{ item.status }}</span> · captured {{ item.captured_at }}</p>
   </div>
   <a class="button secondary" href="/records/{{ item.listing_id }}">View full audit record</a>
 </div>
@@ -44,10 +44,23 @@
     {% if item.unavailable_images|default([]) %}
       <p class="failure-detail">{{ item.unavailable_images|length }} product-image record(s) are missing or unreadable on disk. Do not approve this record.</p>
     {% endif %}
+    <h3>Seller/profile screenshot</h3>
+    <p class="muted">Secondary proof for the seller/behavioural fields below, captured separately from the listing page.</p>
+    {% if item.seller_screenshot_path %}
+      <img class="evidence" src="/asset/seller_screenshot/{{ item.listing_id }}" alt="Private seller/profile screenshot captured for review">
+    {% else %}
+      <p>Seller screenshot not captured, unavailable under the retention policy, or its stored file is missing or unreadable.</p>
+    {% endif %}
+    {% if item.seller_url %}
+      <p><b>Seller source reference:</b> <a href="{{ item.seller_url }}" target="_blank" rel="noreferrer">Open seller/profile page <span class="sr-only">(opens in a new tab)</span></a></p>
+    {% endif %}
   </section>
 
   <section aria-labelledby="review-form-heading">
     <h2 id="review-form-heading">Extracted form</h2>
+    {% if item.capture_source == 'csv_batch' %}
+      <div class="capture-provenance"><b>CSV provenance</b><span>Batch {{ item.capture_batch_id }} · row {{ item.csv_row }}{% if item.original_csv_filename %} · {{ item.original_csv_filename }}{% endif %}</span>{% if item.source_category %}<span>Imported category: {{ item.source_category }}</span>{% endif %}</div>
+    {% endif %}
     {% if error_message %}
       <div class="failure-detail" role="alert"><b>Review action was not completed.</b><p>{{ error_message }}</p></div>
     {% endif %}
@@ -69,6 +82,7 @@
       <label>Review count {{ missing(item.review_count) }}<input name="review_count" type="number" min="0" value="{{ item.review_count if item.review_count is not none else '' }}"></label>
       <label>Active listing count {{ missing(item.active_listing_count) }}<input name="active_listing_count" type="number" min="0" value="{{ item.active_listing_count if item.active_listing_count is not none else '' }}"></label>
       <label>Language {{ missing(item.language) }}<input name="language" value="{{ item.language or '' }}" autocomplete="off"></label>
+      <label>Edit reason (optional)<textarea name="reason" placeholder="Why are you changing these values?"></textarea></label>
       <div class="actions">
         <button type="submit" name="submit_action" value="save" class="secondary">Save edits</button>
         <button type="submit" name="submit_action" value="approve" id="approveUnchanged">Approve</button>

@@ -1,30 +1,33 @@
 # Build and Audit Verification Report
 
-Verification date: 2026-08-24  
-Target: GuardianLens Data Collector v2.0.0  
+Verification date: 2026-08-28
+Target: GuardianLens Data Collector v1.0.0
 Environment used: `guardianlens-collector`, Python 3.12.13, Node.js 24.18.0
 
 ## Readiness boundary
 
-The source and distributable are eligible for the real two-listing soft test. They are not
-certified for a 2,500-record collection campaign until one manually selected Carousell
-listing and one manually selected Mudah listing both pass the live Chrome/provider
-procedure in `README.md`.
+The source and distributable are eligible for the representative live soft test. They are
+not certified for a 2,500-record collection campaign until the original manual flow and a
+two-platform CSV replay both pass the live Chrome/provider procedure in `README.md` and
+`docs/CSV_BATCH_REPLAY.md`.
 
 ## Final automated gates
 
 - Python compile/import check: PASS
-- Pytest suite: PASS (173 collected/passed; 0 failed; 0 skipped)
+- Pytest suite: PASS (206 passed; 0 failed; 0 skipped)
 - JavaScript syntax: PASS for dashboard, extension service worker, and popup
 - Structural self-test: PASS; OS-temporary database only
 - Synthetic integration: PASS; one Carousell + one Mudah record approved in an OS-temporary project
 - Security/data-integrity regression suites: PASS
 - Concurrent duplicate approval and atomic Edit + Approve: PASS
 - Concurrent first-start migration: PASS; one durable migration row and `quick_check=ok`
-- Crash recovery: PASS, including explicit interrupted-review audit marker
+- Crash recovery: PASS, including explicit interrupted-review audit markers, persistent
+  replay recovery, stale browser-lease recovery, and lost-acknowledgement reconciliation
 - Soft-test database/assets/exports/reports isolation: PASS
 - Manifest generation and verification: PASS on the documentation-complete source tree
-- Strict-allowlist ZIP and fresh-extraction verification: PASS
+- Strict-allowlist ZIP verification: PASS; no missing/unexpected files, secret hits,
+  forbidden runtime data, or manifest errors
+- Fresh-extraction structural self-test and synthetic integration: PASS
 - Fresh extracted application startup on an isolated loopback port: PASS
 
 The only test warning is an upstream Starlette `TestClient` deprecation concerning its
@@ -34,10 +37,10 @@ httpx integration; it does not indicate an application test failure.
 
 ### Pass 1 — Functional
 
-Traced manual capture → captured queue → batch → normalized provider extraction → PII and
-image processing → validation → mandatory review → atomic approval → approved-only export.
-Fixed invalid listing acceptance, invisible failures, provider/config errors, review form
-mutation/rollback problems, retry loops, and partial image/capture writes.
+Traced manual capture and CSV replay to their shared `CaptureRequest` → normalized provider
+extraction → PII and image processing → validation → mandatory review → atomic approval →
+approved-only export. Added persistent ordered replay, per-URL diagnostics, bounded retry,
+and crash-safe capture reconciliation without adding a second processing pipeline.
 
 ### Pass 2 — Data integrity and consistency
 
@@ -55,18 +58,19 @@ pass was removed and regression-protected; production reset is not a shipped fea
 
 ### Pass 4 — Research methodology
 
-Verified that marketplace discovery and selection remain manual, capture is researcher
-triggered, batches consume only already captured rows, AI only fills collection fields,
-there are no fraud/legitimacy or AI-confidence fields, approval is human-only, completion is
-based on approved counts, and private screenshots never enter ordinary exports.
+Verified that every listing is researcher-supplied, either through the manual extension or
+a prepared CSV/pasted URL list. GuardianLens performs no discovery/search/pagination,
+AI only fills collection fields, there are no fraud/legitimacy or AI-confidence fields,
+approval is human-only, completion is based on approved counts, and private screenshots
+never enter ordinary exports.
 
 ### Pass 5 — Researcher experience
 
-Added exact live status counts, operational/failure visibility, All Records search/paging,
-bounded review queue totals, safe reason/provenance displays, dirty-form protection,
-status-aware missing-asset copy, keyboard/focus/touch improvements, and 4-second component
-polling without full-page reloads. Provider switches are serialized and stale model-list
-responses are ignored.
+Added exact live status counts, CSV upload and pasted-URL input, import summaries, current
+replay URL/status, progress/failure visibility, Start/Pause/Resume/Stop/Retry Failed,
+All Records search/paging, bounded review totals, provenance displays, keyboard/focus/touch
+improvements, and partial polling without full-page reloads. Manual capture and manual
+processing controls remain available.
 
 ## Release hygiene verified by code/tests
 
@@ -88,11 +92,13 @@ a newly extracted disposable directory.
 These cannot be certified offline because they require the operator's current Chrome,
 marketplace pages, network path, and configured provider account:
 
-1. Capture exactly one manually chosen Carousell Malaysia individual listing.
-2. Capture exactly one manually chosen Mudah individual listing.
-3. Confirm actual page evidence/image URLs remain compatible with current marketplace DOMs.
-4. Confirm the selected real provider/model authenticates, extracts the normalized schema,
+1. Manually capture one Carousell Malaysia and one Mudah individual listing.
+2. Import and replay a two-row CSV containing a different listing from each platform.
+3. Confirm actual page evidence, seller links, and image URLs remain compatible with the
+   current marketplace DOMs in both modes.
+4. Confirm pause/resume and visible replay progress in the configured Chrome session.
+5. Confirm the selected real provider/model authenticates, extracts the normalized schema,
    and reports quota/model/network failures safely.
-5. Review, correct, approve, audit, and export both records entirely in soft-test mode.
+6. Review, correct, approve, audit, and export the successful records in soft-test mode.
 
 Do not begin large real collection until all five live checks pass.

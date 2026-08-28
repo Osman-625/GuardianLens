@@ -74,6 +74,115 @@ function renderBatch(status) {
   setText('cDup', run.duplicates);
 }
 
+let latestReplayBatchId = null;
+
+function renderReplay(snapshot) {
+  const workspace = document.getElementById('replayWorkspace');
+  if (!workspace) return;
+  const batch = snapshot?.batch;
+  const summary = snapshot?.import_summary || {};
+  const progress = snapshot?.progress || {};
+  latestReplayBatchId = batch?.batch_id || null;
+  workspace.classList.toggle('is-empty', !batch);
+
+  setText('replayBatchName', batch?.name || 'No batch imported');
+  setText(
+    'replayBatchMeta',
+    batch ? `${batch.original_filename || 'Pasted URLs'} · created ${batch.created_at}` : 'Import a source above to begin.',
+  );
+  setText('replayBatchStatus', batch?.status || 'idle');
+  setText('rRows', summary.rows || 0);
+  setText('rValid', summary.valid_urls || 0);
+  setText('rInvalid', summary.invalid_rows || 0);
+  setText('rImportDuplicates', summary.duplicates_in_import || 0);
+  setText('rAlreadyCaptured', summary.already_captured || 0);
+  setText('rQueued', summary.queued || 0);
+  setText('rSuccessful', progress.successful || 0);
+  setText('rFailed', progress.failed || 0);
+  setText('rBlocked', progress.blocked || 0);
+  setText('rRemaining', progress.remaining || 0);
+
+  const percent = progress.total
+    ? Math.min(100, Math.round((100 * (progress.processed || 0)) / progress.total))
+    : 0;
+  const fill = document.getElementById('replayProgressFill');
+  const progressbar = fill?.parentElement;
+  if (fill) fill.style.width = `${percent}%`;
+  if (progressbar) progressbar.setAttribute('aria-valuenow', String(percent));
+  setText(
+    'replayProgressLabel',
+    batch
+      ? `${progress.processed || 0} / ${progress.total || 0} resolved · ${progress.successful || 0} successful · ${progress.failed || 0} failed · ${progress.remaining || 0} remaining`
+      : 'No replay batch is active.',
+  );
+
+  const current = snapshot?.current;
+  const currentBox = document.getElementById('replayCurrent');
+  currentBox?.classList.toggle('is-active', Boolean(current));
+  setText('replayCurrentCategory', current?.category || (current ? `${current.platform} · row ${current.row_number}` : 'Waiting for a queued URL'));
+  setText(
+    'replayCurrentStatus',
+    current?.status_message
+      || (batch?.status === 'running'
+        ? 'Waiting for the GuardianLens extension to claim the next URL.'
+        : batch
+          ? `Batch is ${batch.status}.`
+          : 'The extension checks the queue while Chrome is open.'),
+  );
+  const currentUrl = document.getElementById('replayCurrentUrl');
+  if (currentUrl) {
+    currentUrl.hidden = !current?.source_url;
+    currentUrl.textContent = current?.source_url || '';
+    if (current?.source_url) currentUrl.href = current.source_url;
+    else currentUrl.removeAttribute('href');
+  }
+
+  document.querySelectorAll('[data-replay-command]').forEach((button) => {
+    const command = button.dataset.replayCommand;
+    const enabled = Boolean(batch) && (
+      (command === 'start' && batch.status === 'draft' && (summary.queued || 0) > 0)
+      || (command === 'pause' && batch.status === 'running')
+      || (command === 'resume' && batch.status === 'paused')
+      || (command === 'stop' && ['running', 'paused'].includes(batch.status))
+      || (command === 'retry-failed' && ['completed', 'stopped'].includes(batch.status) && (progress.failed || 0) > 0)
+    );
+    button.disabled = !enabled;
+  });
+
+  const failureRows = document.getElementById('replayFailureRows');
+  if (failureRows) {
+    failureRows.textContent = '';
+    const failures = snapshot?.recent_failures || [];
+    if (!failures.length) {
+      const row = document.createElement('tr');
+      const cell = appendCell(row, 'No failures in the latest batch.');
+      cell.colSpan = 6;
+      failureRows.appendChild(row);
+    } else {
+      failures.forEach((failure) => {
+        const row = document.createElement('tr');
+        appendCell(row, failure.row_number);
+        appendCell(row, failure.platform || '—');
+        const urlCell = appendCell(row, '');
+        if (/^https?:\/\//i.test(failure.source_url || '')) {
+          const link = document.createElement('a');
+          link.href = failure.source_url;
+          link.target = '_blank';
+          link.rel = 'noreferrer';
+          link.textContent = failure.source_url;
+          urlCell.appendChild(link);
+        } else {
+          urlCell.textContent = failure.source_url || '—';
+        }
+        appendCell(row, failure.status);
+        appendCell(row, failure.last_error_message || failure.status_message || '—');
+        appendCell(row, failure.attempt_count || 0);
+        failureRows.appendChild(row);
+      });
+    }
+  }
+}
+
 function renderAiStatus(status) {
   document.querySelectorAll('.provider-pill').forEach((button) => {
     const active = button.dataset.provider === status.active;
@@ -275,6 +384,7 @@ function renderDashboard(snapshot) {
   renderOperationalQueue(snapshot.operational_queue);
   renderActivity(snapshot.activity);
   renderBatch(snapshot.batch);
+  renderReplay(snapshot.replay);
   renderAiStatus(snapshot.ai_status);
 }
 
@@ -401,6 +511,55 @@ async function sendBatchCommand(command) {
   }
 }
 
+function setReplayNotice(message, kind = '') {
+  const notice = document.getElementById('replayNotice');
+  if (!notice) return;
+  notice.textContent = message;
+  notice.classList.toggle('is-error', kind === 'error');
+  notice.classList.toggle('is-success', kind === 'success');
+}
+
+async function importReplay(form, submitButton, sourceLabel) {
+  if (!form || !submitButton) return;
+  submitButton.disabled = true;
+  setReplayNotice(`Validating ${sourceLabel}…`);
+  try {
+    const snapshot = await api('/api/replay/import', {
+      method: 'POST',
+      body: new FormData(form),
+    });
+    renderReplay(snapshot);
+    const summary = snapshot.import_summary;
+    setReplayNotice(
+      `Imported ${summary.rows} row(s): ${summary.queued} queued, ${summary.invalid_rows} invalid, ${summary.duplicates_in_import} duplicate in the import, ${summary.already_captured} already captured. Review the summary, then press Start.`,
+      'success',
+    );
+  } catch (error) {
+    setReplayNotice(`Import failed: ${error.message}`, 'error');
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function sendReplayCommand(command) {
+  if (!latestReplayBatchId) {
+    setReplayNotice('Import a CSV or paste URLs before using batch controls.', 'error');
+    return;
+  }
+  setReplayNotice(`${command.replace('-', ' ')} requested…`);
+  try {
+    let path;
+    if (command === 'start') path = `/api/replay/${encodeURIComponent(latestReplayBatchId)}/start`;
+    else if (command === 'retry-failed') path = `/api/replay/${encodeURIComponent(latestReplayBatchId)}/retry-failed`;
+    else path = `/api/replay/${encodeURIComponent(latestReplayBatchId)}/command/${encodeURIComponent(command)}`;
+    const snapshot = await api(path, {method: 'POST'});
+    renderReplay(snapshot);
+    setReplayNotice(`Batch is now ${snapshot.batch.status}.`, 'success');
+  } catch (error) {
+    setReplayNotice(`Could not ${command.replace('-', ' ')}: ${error.message}`, 'error');
+  }
+}
+
 let modelRequestGeneration = 0;
 
 async function switchProvider(provider) {
@@ -495,6 +654,45 @@ document.querySelectorAll('.provider-pill').forEach((button) => {
 document.getElementById('loadProviderModels')?.addEventListener('click', loadModels);
 document.getElementById('retrySelected')?.addEventListener('click', retrySelected);
 document.getElementById('exportApproved')?.addEventListener('click', exportApproved);
+document.getElementById('csvImportForm')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  importReplay(event.currentTarget, document.getElementById('csvImportButton'), 'CSV');
+});
+document.getElementById('manualImportForm')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  importReplay(event.currentTarget, document.getElementById('manualImportButton'), 'pasted URLs');
+});
+document.querySelectorAll('[data-replay-command]').forEach((button) => {
+  button.addEventListener('click', () => sendReplayCommand(button.dataset.replayCommand));
+});
+
+const csvFile = document.getElementById('csvFile');
+const csvDropZone = document.getElementById('csvDropZone');
+csvFile?.addEventListener('change', () => {
+  setText('csvFileName', csvFile.files?.[0]?.name || 'No file selected');
+});
+if (csvDropZone && csvFile) {
+  ['dragenter', 'dragover'].forEach((type) => {
+    csvDropZone.addEventListener(type, (event) => {
+      event.preventDefault();
+      csvDropZone.classList.add('is-dragging');
+    });
+  });
+  ['dragleave', 'drop'].forEach((type) => {
+    csvDropZone.addEventListener(type, (event) => {
+      event.preventDefault();
+      csvDropZone.classList.remove('is-dragging');
+    });
+  });
+  csvDropZone.addEventListener('drop', (event) => {
+    const [file] = event.dataTransfer?.files || [];
+    if (!file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    csvFile.files = transfer.files;
+    setText('csvFileName', file.name);
+  });
+}
 document.getElementById('copyToken')?.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(GL_TOKEN);

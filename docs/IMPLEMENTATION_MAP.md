@@ -4,9 +4,13 @@ This file maps the approved collection design to code.
 
 | Design requirement | Implementation |
 |---|---|
-| Manual listing selection | Chrome `activeTab` capture only, `extension/background.js`; pre/post active-tab identity and URL checks prevent screenshot/tab races |
+| Manual listing selection | Chrome `activeTab` capture remains in `extension/background.js`; pre/post tab identity and URL checks prevent screenshot/tab races |
+| CSV/pasted-URL input | `replay.py`, dashboard template/JS, `/api/replay/import`; named URL aliases, validation, summaries, exact supported hosts |
+| Persistent replay queue | `capture_batches`, `capture_batch_items`, `capture_batch_attempts`; ordered claims, attempt audit, pause/resume/stop/retry, restart and stale-browser recovery |
+| Browser replay | `extension/background.js`; exact-host permissions, supplied URLs only, shared `captureListingTab()`, explicit blocked/login/CAPTCHA/unavailable/timeout states |
+| Capture convergence | `models.CaptureRequest`, `capture.create_capture()`; server-resolved CSV provenance, then the existing `processor.process_listing()` pipeline |
 | Individual-listing validation | `extension/background.js`, `capture.py`; exact host + URL pattern + listing-specific evidence |
-| No crawler | No marketplace search/pagination/seller traversal code or broad host permissions; batch selects only `captured` rows |
+| No crawler | No marketplace search/pagination/recommendation traversal or broad host permissions; replay claims only persisted user-supplied rows |
 | Local backend | `src/guardianlens/app.py`, default `127.0.0.1:8765`; loopback Host/client middleware and security headers |
 | Staging | `capture.py`, private screenshot + bounded private staging JSON with rollback cleanup |
 | AI form extraction (OpenAI/Anthropic/OpenRouter/Gemini, `AI_PROVIDER`-selected) | `openai_extractor.py`, `anthropic_extractor.py`, `openrouter_extractor.py`, `gemini_extractor.py`, `extraction_contract.py` |
@@ -20,9 +24,9 @@ This file maps the approved collection design to code.
 | State machine | `states.py` |
 | Human review | `review.py` + review/record templates; read-only GET, explicit begin, five outcomes, corrections/provenance/history |
 | Atomic approval | `review.edit_and_approve()`/`approve()` use `BEGIN IMMEDIATE` for final fields, PII/images/duplicates, corrections, state, and history |
-| Batch controls | `batch.py` |
-| Crash recovery | `BatchManager.recover()` at FastAPI startup; explicit `review_session_interrupted` audit markers exclude offline time |
-| Audit trail | `status_history`, `review_actions`, `ai_extractions`, `processing_runs` |
+| Batch controls | `batch.py` for manual captured backlog; `ReplayManager` for URL replay controls |
+| Crash recovery | `BatchManager.recover()` and `ReplayManager.recover()` at FastAPI startup; browser leases and attempt checkpoints are durable |
+| Audit trail | `status_history`, `review_actions`, `ai_extractions`, `processing_runs`, `capture_batch_attempts` |
 | Private screenshots | `data/private/screenshots/` and protected asset route |
 | Product images | `data/images/<platform>/<listing_id>/` |
 | Dashboard/count consistency | `dashboard.py`, `/api/dashboard/status`; one read snapshot, exact lifecycle counts, planner, review/run metrics, 4-second partial polling |
@@ -36,3 +40,4 @@ This file maps the approved collection design to code.
 | Approved export | `exports.py`; approved-only snapshot, provenance/corrections/history, formula neutralization, atomic CSV-last pair, no screenshots |
 | Release hygiene | `release.py`, `scripts/manifest.py`, `scripts/build_release_zip.py`, `scripts/verify_fresh_release.py`; strict allowlist, secret scan, manifest/ZIP/fresh extraction |
 | Windows entry points | `setup.bat` and `run.bat`; both required in the release ZIP |
+| Operator runbook | `README.md` quick run plus `docs/CSV_BATCH_REPLAY.md`; manual and CSV procedures, controls, recovery, troubleshooting, and live validation |

@@ -51,6 +51,41 @@ def test_missing_seller_signal_goes_needs_attention_and_cannot_approve(isolated,
     begin_review(r['listing_id'])
     with pytest.raises(ValueError,match='seller/behavioural'): approve(r['listing_id'])
 
+def test_partially_missing_seller_signal_blocks_approval(isolated, monkeypatch):
+    # Distinct from test_missing_seller_signal_goes_needs_attention_and_cannot_approve, which uses
+    # all-null seller fields: here three of four are populated to prove "any missing" (not "all
+    # missing") is what blocks approval.
+    monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=125))
+    r=make_capture()
+    partial_seller_signal = {
+        'title':'Fixture Product','description':'Fixture description','category':'Audio','condition':'Used',
+        'price':900,'currency':'MYR','location_state':'Selangor','location_city':None,
+        'account_age_days':3650,'seller_rating':4.9,'review_count':None,'active_listing_count':8,'language':'en',
+    }
+    out=process_listing(r['listing_id'],MockExtractor(partial_seller_signal)); assert out['status']=='needs_attention'
+    c=connect(); warning=c.execute("SELECT warning_type,message FROM warnings WHERE listing_id=? AND message LIKE '%seller/behavioural%'",(r['listing_id'],)).fetchone(); c.close()
+    assert warning is not None and 'review_count' in warning['message']
+    begin_review(r['listing_id'])
+    with pytest.raises(ValueError,match='seller/behavioural'): approve(r['listing_id'])
+
+def test_placeholder_title_goes_needs_attention_and_cannot_approve(isolated, monkeypatch):
+    monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=124))
+    r=make_capture()
+    placeholder_payload = {
+        'title':'N/A','description':'Fixture description','category':'Audio','condition':'Used',
+        'price':900,'currency':'MYR','location_state':'Selangor','location_city':None,
+        'account_age_days':3650,'seller_rating':5.0,'review_count':55,'active_listing_count':8,'language':'en',
+    }
+    out=process_listing(r['listing_id'],MockExtractor(placeholder_payload)); assert out['status']=='needs_attention'
+    c=connect(); warning=c.execute("SELECT warning_type,message FROM warnings WHERE listing_id=? AND message LIKE '%Placeholder%'",(r['listing_id'],)).fetchone(); c.close()
+    assert warning is not None and 'title' in warning['message']
+    begin_review(r['listing_id'])
+    with pytest.raises(ValueError,match='placeholder'): approve(r['listing_id'])
+    # A human override that merely re-approves without fixing the placeholder must still be blocked.
+    with pytest.raises(ValueError,match='placeholder'):
+        from guardianlens.review import edit_and_approve
+        edit_and_approve(r['listing_id'],{'category':'Audio'})
+
 def test_ai_invalid_output_moves_ai_failed(isolated):
     r=make_capture()
     bad=MockExtractor({'title':'x','confidence':0.9})
@@ -136,9 +171,9 @@ def test_process_listing_forwards_captured_source_url_to_extractor(isolated, mon
     class SpyExtractor(MockExtractor):
         received = {}
 
-        def extract(self, screenshot_path, platform, page_title, categories, source_url=None):
+        def extract(self, screenshot_path, platform, page_title, categories, source_url=None, visible_text=None, seller_visible_text=None):
             SpyExtractor.received['source_url'] = source_url
-            return super().extract(screenshot_path, platform, page_title, categories, source_url)
+            return super().extract(screenshot_path, platform, page_title, categories, source_url, visible_text, seller_visible_text)
 
     process_listing(r['listing_id'], SpyExtractor())
     assert SpyExtractor.received['source_url'] == get_listing(r['listing_id'])['source_url']

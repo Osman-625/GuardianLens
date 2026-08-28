@@ -22,10 +22,51 @@ EXTRACTION_SCHEMA = {
     "language": "string|null",
 }
 
-SYSTEM_RULES = """You extract only visible marketplace listing fields from one screenshot.
-Do not infer hidden seller identity. Do not return seller username, seller name, email, phone, bank details, contact handles, or exact street address.
-If a field is not visible, return null. Return only one JSON object and no markdown.
-No confidence fields are allowed. Categories should use the configured GuardianLens category names when an obvious mapping exists."""
+SYSTEM_RULES = """You extract marketplace listing fields from captured page text plus a screenshot.
+The captured page text is the PRIMARY source of truth: title, description, category, condition,
+price, currency, and location come from the listing page's text; account_age_days, seller_rating,
+review_count, and active_listing_count come from the seller/profile page's text. The screenshot is
+SECONDARY evidence only -- proof the page looked like this. Use it to catch a mismatch with the text,
+never to invent a value the text does not support. If a field is not present in the text and cannot
+be confidently confirmed from the screenshot, return null -- do not guess and do not fill in a
+placeholder like "N/A" or "Unknown".
+account_age_days is the one field you must convert, not just copy: platforms state account age as
+a relative duration ("11 years", "3 years 2 months", "8 months") rather than a day count. Convert
+it using 1 year = 365 days and 1 month = 30 days (e.g. "11 years" -> 4015, "3 years 2 months" ->
+1155). This is an approximation from a duration the page actually states, not a guess. Only convert
+a stated duration this way -- if the text instead gives a join year/date with no reference point for
+today's date (e.g. "joined 2016") and no duration is stated, return null rather than compute an
+age that depends on knowing the current date.
+Do not infer hidden seller identity. Do not return seller username, seller name, email, phone, bank
+details, contact handles, or exact street address.
+Return only one JSON object and no markdown. No confidence fields are allowed. Categories should use
+the configured GuardianLens category names when an obvious mapping exists."""
+
+def build_extraction_prompt(
+    platform: str,
+    page_title: str | None,
+    source_url: str | None,
+    categories: list[str],
+    visible_text: str | None = None,
+    seller_visible_text: str | None = None,
+) -> str:
+    """One prompt body shared by every provider so the text-primary/screenshot-secondary
+    contract can't drift between them."""
+    return "\n".join([
+        f"Platform: {platform}",
+        f"Page title: {page_title or ''}",
+        f"Listing URL: {source_url or ''}",
+        f"Allowed categories: {', '.join(categories)}",
+        f"Required JSON keys and types: {json.dumps(EXTRACTION_SCHEMA)}",
+        "--- CAPTURED LISTING PAGE TEXT (primary source for title, description, category, "
+        "condition, price, currency, location) ---",
+        visible_text or "(no listing page text was captured; use the screenshot only for these fields)",
+        "--- CAPTURED SELLER/PROFILE PAGE TEXT (primary source for account_age_days, "
+        "seller_rating, review_count, active_listing_count) ---",
+        seller_visible_text or "(the seller/profile page has not been captured; leave these fields null "
+        "unless the screenshot unambiguously shows them)",
+        "Return only one JSON object and no markdown fences.",
+    ])
 
 class Extractor(Protocol):
     provider: str
@@ -38,6 +79,8 @@ class Extractor(Protocol):
         page_title: str | None,
         categories: list[str],
         source_url: str | None = None,
+        visible_text: str | None = None,
+        seller_visible_text: str | None = None,
     ) -> dict: ...
 
 

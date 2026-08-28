@@ -51,6 +51,16 @@ def run_self_test() -> list[str]:
         retry_max = float(example.get("AI_RETRY_MAX_SECONDS") or "-1")
         if not 1 <= attempts <= 5 or not 0 <= retry_base <= retry_max <= 60:
             errors.append(".env.example retry policy is invalid")
+        capture_attempts = int(example.get("MAX_CAPTURE_ATTEMPTS") or "0")
+        capture_timeout = int(example.get("CAPTURE_PAGE_TIMEOUT_SECONDS") or "0")
+        csv_rows = int(example.get("CSV_IMPORT_MAX_ROWS") or "0")
+        csv_bytes = int(example.get("CSV_IMPORT_MAX_BYTES") or "0")
+        if not 1 <= capture_attempts <= 10:
+            errors.append(".env.example capture attempt policy is invalid")
+        if not 10 <= capture_timeout <= 180:
+            errors.append(".env.example capture page timeout is invalid")
+        if not 1 <= csv_rows <= 100_000 or not 1_024 <= csv_bytes <= 50 * 1024 * 1024:
+            errors.append(".env.example CSV import limits are invalid")
     except Exception as exc:
         errors.append(f".env.example invalid: {type(exc).__name__}")
 

@@ -8,7 +8,7 @@
   <div>
     <p class="eyebrow">Lifecycle record</p>
     <h1>{{ item.title or item.page_title or item.listing_id }}</h1>
-    <p>{{ item.platform|title }} · Captured {{ item.captured_at }} · <span class="status">{{ item.status }}</span></p>
+    <p>{{ item.platform|title }} · {{ 'CSV batch replay' if item.capture_source == 'csv_batch' else 'Manual extension' }} · Captured {{ item.captured_at }} · <span class="status">{{ item.status }}</span></p>
   </div>
   {% if reviewable %}
     {% if item.status == 'under_review' %}
@@ -95,7 +95,14 @@
 </section>
 
 <section aria-labelledby="provenance-heading">
-  <h2 id="provenance-heading">AI provenance</h2>
+  <h2 id="provenance-heading">Capture and AI provenance</h2>
+  <dl class="record-fields">
+    <div><dt>Capture source</dt><dd>{{ item.capture_source }}</dd></div>
+    <div><dt>Batch</dt><dd>{{ item.capture_batch_id or 'Not a batch capture' }}</dd></div>
+    <div><dt>CSV row</dt><dd>{{ item.csv_row if item.csv_row is not none else '—' }}</dd></div>
+    <div><dt>Original CSV</dt><dd>{{ item.original_csv_filename or '—' }}</dd></div>
+    <div><dt>Imported category</dt><dd>{{ item.source_category or '—' }}</dd></div>
+  </dl>
   {% if item.ai_extractions|default([]) %}
     <div class="table-scroll"><table><thead><tr><th>Time</th><th>Provider</th><th>Model</th><th>Prompt</th><th>Status</th></tr></thead><tbody>
       {% for extraction in item.ai_extractions %}

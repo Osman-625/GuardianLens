@@ -91,18 +91,32 @@ python main.py
 Verify `http://127.0.0.1:8876/health` reports `soft_test` and the dashboard loads. Stop that
 server before continuing. This startup must create data only inside the fresh extraction.
 
-## 6. Required live two-listing soft test
+## 6. Required live manual-and-replay soft test
 
 Start `python scripts\run_soft_test_server.py`, configure the extension with the local token,
-then manually capture exactly:
+and use listings that are not already present in the soft-test database.
 
-1. one individual Carousell Malaysia listing;
-2. one individual Mudah.my listing.
+Validate the original manual path:
 
-For each, confirm capture → queue → selected provider/model → normalized extraction → PII →
-images → duplicates → ready for review → full evidence/form → human correction → approval →
-complete history → approved/planner increment. Then run the soft-test security/integrity
-audits and approved export. Do not begin large real collection until both pass.
+1. manually capture one individual Carousell Malaysia listing;
+2. manually capture one individual Mudah.my listing; and
+3. attach seller behaviour when the marketplace exposes it.
 
-Live marketplace DOM compatibility and real provider authentication/quota/network behavior
-cannot be certified by offline tests.
+Then validate CSV replay with a two-row CSV containing a different individual Carousell
+listing and Mudah listing:
+
+1. import the file and verify every import-summary count;
+2. start the replay and keep Chrome open;
+3. confirm the current URL/status and progress counters update;
+4. confirm both records show `csv_batch`, batch ID, row, filename, and source-category
+   provenance; and
+5. confirm a failure, if encountered, is isolated and does not silently disappear.
+
+For all successful records, confirm capture → selected provider/model → normalized extraction
+→ PII → images → duplicates → ready for review → full evidence/form → human correction →
+approval → complete history → approved/planner increment. Then run the soft-test
+security/integrity audits and approved export. Do not begin a large collection until both
+manual and replay checks pass. See `docs/CSV_BATCH_REPLAY.md` for the operator procedure.
+
+Live marketplace DOM compatibility, browser login state, and real provider
+authentication/quota/network behavior cannot be certified by offline tests.

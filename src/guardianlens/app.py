@@ -2,7 +2,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode
 import uvicorn
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,8 +19,14 @@ from .security import (
     require_same_origin_asset,
     assert_safe_bind,
 )
-from .models import CaptureRequest, ReviewUpdate, BatchStartRequest
-from .capture import create_capture
+from .models import (
+    CaptureRequest,
+    SellerCaptureRequest,
+    ReviewUpdate,
+    BatchStartRequest,
+    ReplayItemUpdate,
+)
+from .capture import create_capture, attach_seller_capture
 from .dashboard import (
     LISTING_STATUSES,
     RETRYABLE_FAILURE_STATUSES,
@@ -30,6 +36,7 @@ from .dashboard import (
     review_queue_snapshot,
 )
 from .batch import batch_manager
+from .replay import CSVImportError, create_csv_batch, create_manual_batch, replay_manager
 from .review import (
     PrivateAssetCleanupError,
     get_listing,
@@ -47,7 +54,9 @@ async def lifespan(app: FastAPI):
     init_db()
     ensure_local_token()
     batch_manager.recover()
+    replay_manager.recover()
     yield
+    replay_manager.shutdown()
     batch_manager.stop()
 
 app = FastAPI(title="GuardianLens Data Collector", version="2.0.0", lifespan=lifespan)
@@ -87,20 +96,36 @@ def dashboard(request: Request):
         {
             **snapshot,
             "batch": batch_manager.status(),
+            "replay": replay_manager.status(),
             "token": get_local_token(),
             "mode": settings.mode,
+            "csv_import_max_rows": settings.csv_import_max_rows,
             "ai_status": _ai_status_payload(),
         },
     )
 
 @app.get("/api/dashboard/status")
 def dashboard_status():
-    return {**dashboard_snapshot(), "batch": batch_manager.status(), "ai_status": _ai_status_payload()}
+    return {
+        **dashboard_snapshot(),
+        "batch": batch_manager.status(),
+        "replay": replay_manager.status(),
+        "ai_status": _ai_status_payload(),
+    }
 
 @app.post("/api/capture", dependencies=[Depends(require_local_token)])
 def capture(payload: CaptureRequest):
     try:
         return create_capture(payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/api/capture/{listing_id}/seller", dependencies=[Depends(require_local_token)])
+def capture_seller(listing_id: str, payload: SellerCaptureRequest):
+    try:
+        return attach_seller_capture(listing_id, payload)
+    except KeyError:
+        raise HTTPException(404, "listing not found")
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -219,11 +244,12 @@ async def review_save(request: Request, listing_id: str):
         )
     # A field submitted empty is an explicit clear (-> NULL); one omitted from the form is untouched.
     data = {k: validated.get(k) for k in submitted}
+    reason = str(form.get("reason") or "")[:2000] or None
     try:
         if form.get("submit_action") == "approve":
-            edit_and_approve(listing_id, data)
+            edit_and_approve(listing_id, data, reason)
             return RedirectResponse("/review", status_code=303)
-        edit_listing(listing_id, data)
+        edit_listing(listing_id, data, reason)
     except ValueError as e:
         try:
             item = get_listing(listing_id)
@@ -321,6 +347,16 @@ def screenshot(request: Request, listing_id: str):
     if allowed not in p.parents or not p.is_file(): raise HTTPException(404)
     return FileResponse(p, headers={"Cache-Control":"no-store, private","X-Content-Type-Options":"nosniff"})
 
+@app.get("/asset/seller_screenshot/{listing_id}")
+def seller_screenshot(request: Request, listing_id: str):
+    require_same_origin_asset(request)
+    c=connect(); row=c.execute("SELECT seller_screenshot_path FROM listings WHERE listing_id=?",(listing_id,)).fetchone(); c.close()
+    if not row or not row["seller_screenshot_path"]: raise HTTPException(404)
+    p=(settings.root/row["seller_screenshot_path"]).resolve()
+    allowed=(settings.data_dir/"private"/"screenshots").resolve()
+    if allowed not in p.parents or not p.is_file(): raise HTTPException(404)
+    return FileResponse(p, headers={"Cache-Control":"no-store, private","X-Content-Type-Options":"nosniff"})
+
 @app.get("/asset/image/{image_id}")
 def image(request: Request, image_id: str):
     require_same_origin_asset(request)
@@ -356,6 +392,97 @@ def batch_command(command: str):
 
 @app.get("/api/batch/status")
 def batch_status(): return batch_manager.status()
+
+
+@app.post("/api/replay/import", dependencies=[Depends(require_local_token)])
+async def replay_import(
+    file: UploadFile | None = File(default=None),
+    manual_urls: str | None = Form(default=None),
+    batch_name: str | None = Form(default=None),
+):
+    has_file = file is not None and bool(file.filename)
+    has_manual = bool((manual_urls or "").strip())
+    if has_file == has_manual:
+        raise HTTPException(400, "Provide either one CSV file or pasted listing URLs.")
+    try:
+        if has_file:
+            data = await file.read(settings.csv_import_max_bytes + 1)
+            return create_csv_batch(data, file.filename or "upload.csv", batch_name)
+        return create_manual_batch(manual_urls or "", batch_name)
+    except CSVImportError as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _require_replay_provider() -> None:
+    active_provider = get_active_provider()
+    if not provider_configured(active_provider):
+        raise HTTPException(
+            409,
+            f"{active_provider} is active but has no API key configured; configure or switch providers before starting",
+        )
+
+
+@app.post("/api/replay/{batch_id}/start", dependencies=[Depends(require_local_token)])
+def replay_start(batch_id: str):
+    _require_replay_provider()
+    try:
+        return replay_manager.start(batch_id)
+    except KeyError:
+        raise HTTPException(404, "replay batch not found")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/replay/{batch_id}/command/{command}", dependencies=[Depends(require_local_token)])
+def replay_command(batch_id: str, command: str):
+    if command not in {"pause", "resume", "stop"}:
+        raise HTTPException(404, "unknown replay batch command")
+    try:
+        return replay_manager.command(batch_id, command)
+    except KeyError:
+        raise HTTPException(404, "replay batch not found")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/replay/{batch_id}/retry-failed", dependencies=[Depends(require_local_token)])
+def replay_retry_failed(batch_id: str):
+    _require_replay_provider()
+    try:
+        return replay_manager.retry_failed(batch_id)
+    except KeyError:
+        raise HTTPException(404, "replay batch not found")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/replay/status")
+def replay_status(batch_id: str | None = None):
+    return replay_manager.status(batch_id)
+
+
+@app.post("/api/replay/claim", dependencies=[Depends(require_local_token)])
+def replay_claim():
+    return {"item": replay_manager.claim_next()}
+
+
+@app.post("/api/replay/items/{batch_item_id}", dependencies=[Depends(require_local_token)])
+def replay_item_update(batch_item_id: str, payload: ReplayItemUpdate):
+    try:
+        return replay_manager.update_item(
+            batch_item_id,
+            status=payload.status,
+            status_message=payload.status_message,
+            listing_id=payload.listing_id,
+            error_type=payload.error_type,
+            error_message=payload.error_message,
+        )
+    except KeyError:
+        raise HTTPException(404, "replay item not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
 
 class RetryListingsRequest(BaseModel):
     listing_ids: list[str]

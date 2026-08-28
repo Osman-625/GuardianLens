@@ -95,12 +95,12 @@ def sanitize_product_image(data: bytes) -> tuple[bytes, str, int, int, str, int]
     stored_fmt, width, height, sha, phash = validate_image_bytes(stored)
     return stored, stored_fmt, width, height, sha, phash
 
-def save_private_screenshot(platform: str, listing_id: str, data_url: str) -> str:
+def save_private_screenshot(platform: str, listing_id: str, data_url: str, filename: str = "listing") -> str:
     data, fmt, _, _, _, _ = sanitize_product_image(decode_data_url(data_url))
     ext = SUPPORTED[fmt]
     folder = settings.data_dir / "private" / "screenshots" / platform / listing_id
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"listing{ext}"
+    path = folder / f"{filename}{ext}"
     temporary = folder / f".{uuid.uuid4().hex}.part"
     try:
         temporary.write_bytes(data)

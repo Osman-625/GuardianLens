@@ -53,6 +53,7 @@ REQUIRED_PACKAGE_FILES = frozenset(
         "requirements.txt", "scripts/mock_integration_check.py", "scripts/self_test.py",
         "scripts/build_release_zip.py", "scripts/manifest.py", "scripts/verify_fresh_release.py",
         "setup.bat", "run.bat", "src/guardianlens/__init__.py", "src/guardianlens/schema.sql",
+        "src/guardianlens/replay.py",
     }
 )
 

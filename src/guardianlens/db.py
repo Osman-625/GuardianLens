@@ -6,8 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from .config import settings
 
-LATEST_SCHEMA_VERSION = 1
-MIGRATION_NAMES = {1: "baseline_versioned_schema"}
+LATEST_SCHEMA_VERSION = 4
+MIGRATION_NAMES = {
+    1: "baseline_versioned_schema",
+    2: "review_action_reason",
+    3: "seller_capture_fields",
+    4: "csv_batch_replay",
+}
 
 REQUIRED_TABLE_COLUMNS = {
     "listings": {
@@ -15,8 +20,11 @@ REQUIRED_TABLE_COLUMNS = {
         "page_title", "title", "description", "category", "condition", "price", "currency",
         "location_state", "location_city", "account_age_days", "seller_rating", "review_count",
         "active_listing_count", "language", "status", "metadata_signature", "screenshot_path",
+        "seller_url", "seller_screenshot_path",
         "staging_text_path", "ai_extracted", "ai_provider", "ai_model", "ai_prompt_version",
         "captured_at", "processed_at", "approved_at", "rejected_at", "processing_run_id",
+        "capture_source", "capture_batch_id", "csv_row", "original_csv_filename",
+        "source_category",
         "created_at", "updated_at",
     },
     "images": {
@@ -30,7 +38,7 @@ REQUIRED_TABLE_COLUMNS = {
     },
     "review_actions": {
         "review_action_id", "listing_id", "action", "previous_data", "updated_data",
-        "started_at", "finished_at", "duration_seconds", "created_at",
+        "started_at", "finished_at", "duration_seconds", "created_at", "reason",
     },
     "warnings": {"warning_id", "listing_id", "warning_type", "message", "resolved", "created_at"},
     "status_history": {"history_id", "listing_id", "from_status", "to_status", "timestamp", "reason"},
@@ -41,6 +49,21 @@ REQUIRED_TABLE_COLUMNS = {
         "other_failures", "failed",
     },
     "processor_control": {"control_id", "command", "updated_at"},
+    "capture_batches": {
+        "batch_id", "name", "source_type", "original_filename", "status", "total_rows",
+        "valid_urls", "invalid_rows", "duplicate_rows", "already_captured", "queued_count",
+        "max_attempts", "created_at", "started_at", "completed_at", "updated_at",
+    },
+    "capture_batch_items": {
+        "batch_item_id", "batch_id", "row_number", "source_url", "source_url_hash",
+        "platform", "category", "status", "status_message", "attempt_count", "listing_id",
+        "created_at", "started_at", "completed_at", "updated_at", "last_error_type",
+        "last_error_message", "last_error_at",
+    },
+    "capture_batch_attempts": {
+        "attempt_id", "batch_item_id", "attempt_number", "started_at", "finished_at",
+        "status", "error_type", "error_message",
+    },
     "schema_migrations": {"version", "name", "applied_at"},
 }
 
@@ -50,10 +73,16 @@ REQUIRED_INDEX_COLUMNS = {
     "ix_listings_status": ("status",),
     "ix_listings_platform_category": ("platform", "category"),
     "ix_listings_metadata_signature": ("metadata_signature",),
+    "ix_listings_capture_batch": ("capture_batch_id", "csv_row"),
     "ix_images_listing": ("listing_id",),
     "ix_images_sha256": ("sha256",),
     "ix_images_phash": ("perceptual_hash",),
     "ix_warnings_listing": ("listing_id",),
+    "ix_capture_batches_status_created": ("status", "created_at"),
+    "ix_capture_batch_items_queue": ("batch_id", "status", "row_number"),
+    "ix_capture_batch_items_url_hash": ("source_url_hash",),
+    "ix_capture_batch_items_listing": ("listing_id",),
+    "ix_capture_batch_attempts_item": ("batch_item_id", "attempt_number"),
 }
 
 REQUIRED_FOREIGN_KEYS = {
@@ -62,6 +91,13 @@ REQUIRED_FOREIGN_KEYS = {
     "review_actions": {("listing_id", "listings", "listing_id", "CASCADE")},
     "warnings": {("listing_id", "listings", "listing_id", "CASCADE")},
     "status_history": {("listing_id", "listings", "listing_id", "CASCADE")},
+    "capture_batch_items": {
+        ("batch_id", "capture_batches", "batch_id", "CASCADE"),
+        ("listing_id", "listings", "listing_id", "SET NULL"),
+    },
+    "capture_batch_attempts": {
+        ("batch_item_id", "capture_batch_items", "batch_item_id", "CASCADE"),
+    },
 }
 
 
@@ -186,6 +222,89 @@ def _apply_migration(con: sqlite3.Connection, version: int, schema: str) -> None
         # CREATE IF NOT EXISTS is intentional: validation below rejects an older,
         # incompatible table shape and leaves the original transaction untouched.
         _execute_schema_statements(con, schema)
+    elif version == 2:
+        columns = {row[1] for row in con.execute('PRAGMA table_info("review_actions")')}
+        if "reason" not in columns:
+            con.execute("ALTER TABLE review_actions ADD COLUMN reason TEXT")
+    elif version == 3:
+        columns = {row[1] for row in con.execute('PRAGMA table_info("listings")')}
+        if "seller_url" not in columns:
+            con.execute("ALTER TABLE listings ADD COLUMN seller_url TEXT")
+        if "seller_screenshot_path" not in columns:
+            con.execute("ALTER TABLE listings ADD COLUMN seller_screenshot_path TEXT")
+    elif version == 4:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS capture_batches (
+                   batch_id TEXT PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   source_type TEXT NOT NULL CHECK(source_type IN ('csv','manual')),
+                   original_filename TEXT,
+                   status TEXT NOT NULL CHECK(status IN ('draft','running','paused','stopping','stopped','completed')),
+                   total_rows INTEGER NOT NULL DEFAULT 0,
+                   valid_urls INTEGER NOT NULL DEFAULT 0,
+                   invalid_rows INTEGER NOT NULL DEFAULT 0,
+                   duplicate_rows INTEGER NOT NULL DEFAULT 0,
+                   already_captured INTEGER NOT NULL DEFAULT 0,
+                   queued_count INTEGER NOT NULL DEFAULT 0,
+                   max_attempts INTEGER NOT NULL DEFAULT 2,
+                   created_at TEXT NOT NULL,
+                   started_at TEXT,
+                   completed_at TEXT,
+                   updated_at TEXT NOT NULL
+               )"""
+        )
+        columns = {row[1] for row in con.execute('PRAGMA table_info("listings")')}
+        listing_columns = {
+            "capture_source": "TEXT NOT NULL DEFAULT 'extension'",
+            "capture_batch_id": "TEXT",
+            "csv_row": "INTEGER",
+            "original_csv_filename": "TEXT",
+            "source_category": "TEXT",
+        }
+        for column, declaration in listing_columns.items():
+            if column not in columns:
+                con.execute(f'ALTER TABLE listings ADD COLUMN "{column}" {declaration}')
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS capture_batch_items (
+                   batch_item_id TEXT PRIMARY KEY,
+                   batch_id TEXT NOT NULL REFERENCES capture_batches(batch_id) ON DELETE CASCADE,
+                   row_number INTEGER NOT NULL,
+                   source_url TEXT NOT NULL,
+                   source_url_hash TEXT,
+                   platform TEXT,
+                   category TEXT,
+                   status TEXT NOT NULL,
+                   status_message TEXT,
+                   attempt_count INTEGER NOT NULL DEFAULT 0,
+                   listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+                   created_at TEXT NOT NULL,
+                   started_at TEXT,
+                   completed_at TEXT,
+                   updated_at TEXT NOT NULL,
+                   last_error_type TEXT,
+                   last_error_message TEXT,
+                   last_error_at TEXT,
+                   UNIQUE(batch_id, row_number)
+               )"""
+        )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS capture_batch_attempts (
+                   attempt_id TEXT PRIMARY KEY,
+                   batch_item_id TEXT NOT NULL REFERENCES capture_batch_items(batch_item_id) ON DELETE CASCADE,
+                   attempt_number INTEGER NOT NULL,
+                   started_at TEXT NOT NULL,
+                   finished_at TEXT,
+                   status TEXT NOT NULL,
+                   error_type TEXT,
+                   error_message TEXT
+               )"""
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batches_status_created ON capture_batches(status, created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_listings_capture_batch ON listings(capture_batch_id, csv_row)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_items_queue ON capture_batch_items(batch_id, status, row_number)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_items_url_hash ON capture_batch_items(source_url_hash)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_items_listing ON capture_batch_items(listing_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_attempts_item ON capture_batch_attempts(batch_item_id, attempt_number)")
     else:
         raise MigrationError(f"no migration implementation for schema version {version}")
     con.execute(

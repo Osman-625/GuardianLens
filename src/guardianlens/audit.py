@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import settings
 from .db import connect, now_iso
 from .images import validate_image_bytes
-from .pii import residual_pii
+from .pii import residual_pii, is_placeholder_value
 from .states import TRANSITIONS, can_transition
 
 STALE_REVIEW_SECONDS = 4 * 60 * 60
@@ -103,7 +103,10 @@ def data_integrity_report() -> dict:
                     history_status=history[-1]["to_status"],
                 )
 
-        required_approved = ("title", "category", "price", "currency", "approved_at")
+        required_approved = (
+            "title", "description", "category", "condition", "price", "currency",
+            "location_state", "approved_at",
+        )
         configured_categories = {item["name"] for item in settings.categories()}
         for listing in approved:
             listing_id = listing["listing_id"]
@@ -112,8 +115,14 @@ def data_integrity_report() -> dict:
             missing = [key for key in required_approved if listing[key] in {None, ""}]
             if missing:
                 add("approved_missing_required_fields", listing_id=listing_id, fields=missing)
-            if all(listing[key] in {None, ""} for key in SELLER_SIGNAL_FIELDS):
-                add("approved_missing_seller_signal", listing_id=listing_id)
+            missing_seller_fields = [key for key in SELLER_SIGNAL_FIELDS if listing[key] in {None, ""}]
+            if missing_seller_fields:
+                add("approved_missing_seller_signal", listing_id=listing_id, fields=missing_seller_fields)
+            placeholder_fields = [
+                key for key in PII_FREE_TEXT_FIELDS if is_placeholder_value(listing[key])
+            ]
+            if placeholder_fields:
+                add("approved_placeholder_value", listing_id=listing_id, fields=placeholder_fields)
             if listing["category"] not in configured_categories:
                 add("approved_invalid_category", listing_id=listing_id, category=listing["category"])
             provenance_missing = [
@@ -152,6 +161,82 @@ def data_integrity_report() -> dict:
                 add("approval_timestamp_status_mismatch", listing_id=listing["listing_id"])
             if listing["status"] != "rejected" and listing["rejected_at"] is not None:
                 add("rejection_timestamp_status_mismatch", listing_id=listing["listing_id"])
+            if listing["capture_source"] not in {"extension", "csv_batch"}:
+                add(
+                    "unknown_capture_source",
+                    listing_id=listing["listing_id"],
+                    capture_source=listing["capture_source"],
+                )
+            if listing["capture_source"] == "csv_batch" and (
+                not listing["capture_batch_id"] or listing["csv_row"] is None
+            ):
+                add("csv_capture_missing_provenance", listing_id=listing["listing_id"])
+            if listing["capture_source"] == "extension" and (
+                listing["capture_batch_id"] is not None or listing["csv_row"] is not None
+            ):
+                add("extension_capture_has_batch_provenance", listing_id=listing["listing_id"])
+
+        active_batches = c.execute(
+            "SELECT batch_id FROM capture_batches WHERE status IN ('running','paused','stopping')"
+        ).fetchall()
+        if len(active_batches) > 1:
+            add("multiple_active_replay_batches", count=len(active_batches))
+        replay_items = c.execute(
+            "SELECT * FROM capture_batch_items ORDER BY batch_id,row_number"
+        ).fetchall()
+        for item in replay_items:
+            attempt_rows = c.execute(
+                "SELECT * FROM capture_batch_attempts WHERE batch_item_id=? ORDER BY attempt_number",
+                (item["batch_item_id"],),
+            ).fetchall()
+            if len(attempt_rows) != item["attempt_count"]:
+                add(
+                    "replay_attempt_count_mismatch",
+                    batch_item_id=item["batch_item_id"],
+                    stored=item["attempt_count"],
+                    attempts=len(attempt_rows),
+                )
+            if item["listing_id"]:
+                listing = by_id.get(item["listing_id"])
+                if not listing:
+                    add("replay_item_missing_listing", batch_item_id=item["batch_item_id"])
+                elif (
+                    listing["capture_source"] == "csv_batch"
+                    and (
+                        listing["capture_batch_id"] != item["batch_id"]
+                        or listing["csv_row"] != item["row_number"]
+                    )
+                ):
+                    add(
+                        "replay_listing_provenance_mismatch",
+                        batch_item_id=item["batch_item_id"],
+                        listing_id=item["listing_id"],
+                    )
+            unfinished_attempts = [attempt for attempt in attempt_rows if attempt["finished_at"] is None]
+            if item["status"] in {"opening", "capturing"}:
+                if len(unfinished_attempts) != 1:
+                    add(
+                        "active_replay_attempt_count_mismatch",
+                        batch_item_id=item["batch_item_id"],
+                        unfinished=len(unfinished_attempts),
+                    )
+            elif item["status"] not in {"captured", "processing"} and unfinished_attempts:
+                add(
+                    "terminal_replay_item_has_open_attempt",
+                    batch_item_id=item["batch_item_id"],
+                    unfinished=len(unfinished_attempts),
+                )
+        active_item_groups = c.execute(
+            """SELECT batch_id,COUNT(*) AS n FROM capture_batch_items
+               WHERE status IN ('opening','capturing','captured','processing')
+               GROUP BY batch_id HAVING COUNT(*)>1"""
+        ).fetchall()
+        for group in active_item_groups:
+            add(
+                "multiple_active_replay_items",
+                batch_id=group["batch_id"],
+                count=group["n"],
+            )
 
         duplicate_queries = {
             "duplicate_approved_urls": """
@@ -483,6 +568,10 @@ def data_integrity_report() -> dict:
         checks["listing_count"] = len(listings)
         checks["approved_count"] = len(approved)
         checks["image_row_count"] = len(image_rows)
+        checks["replay_batch_count"] = c.execute(
+            "SELECT COUNT(*) AS n FROM capture_batches"
+        ).fetchone()["n"]
+        checks["replay_item_count"] = len(replay_items)
         return {
             "generated_at": now_iso(),
             "approved": len(approved),

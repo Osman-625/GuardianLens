@@ -2,7 +2,7 @@
 {% block title %}Dashboard · GuardianLens{% endblock %}
 {% block content %}
 <section class="hero" aria-labelledby="dashboard-heading">
-  <div><p class="eyebrow">Manual capture · Human approval</p><h1 id="dashboard-heading">Collection Dashboard</h1><p>Mode: <b>{{ mode }}</b>. Only approved records count toward the dataset.</p></div>
+  <div><p class="eyebrow">Manual + CSV replay · Human approval</p><h1 id="dashboard-heading">Collection Dashboard</h1><p>Mode: <b>{{ mode }}</b>. Only approved records count toward the dataset.</p></div>
     <div class="big"><span id="approvedTotal">{{ plan.approved_total }}</span> / <span id="datasetTarget">{{ plan.total_target }}</span></div>
     </section>
     
@@ -32,7 +32,7 @@
                                                                           
                                                                           <section aria-labelledby="planner-heading">
                                                                             <h2 id="planner-heading">What should I collect next?</h2>
-                                                                              <p>The planner subtracts approved records and relevant pending workload. You still search and select every listing manually.</p>
+                                                                              <p>The planner subtracts approved records and relevant pending workload. Capture a listing manually or supply only the listing URLs you already selected.</p>
                                                                                 <div class="grid cards" id="recommendations">
                                                                                     {% for recommendation in plan.recommendations %}
                                                                                           <article><b>{{ recommendation.platform|title }} → {{ recommendation.category }}</b><small>Estimated remaining {{ recommendation.remaining }}</small></article>
@@ -70,10 +70,116 @@
                                                                                                                                                                 <button type="button" id="loadProviderModels" class="secondary">View models for active provider</button>
                                                                                                                                                                   <ul id="providerModels" aria-live="polite"></ul>
                                                                                                                                                                   </section>
+
+<section class="collection-section" aria-labelledby="collection-heading">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Two inputs · One capture pipeline</p>
+      <h2 id="collection-heading">Data collection</h2>
+      <p>Choose the manual extension when you want hands-on control, or import only the listing URLs you provide. Both paths enter the same capture, processing, and review flow.</p>
+    </div>
+    <span class="pipeline-badge">Same CaptureRequest</span>
+  </div>
+
+  <div class="collection-modes">
+    <article class="collection-mode manual-mode">
+      <div class="mode-number" aria-hidden="true">01</div>
+      <div>
+        <p class="eyebrow">Manual capture</p>
+        <h3>Keep using the extension</h3>
+        <p>Open one Carousell or Mudah listing yourself, then use <b>Capture Current Listing</b>. Open its seller page and use <b>Capture Seller Behaviour</b> when you want the fully manual path.</p>
+        <ol class="compact-steps">
+          <li>Open the listing in Chrome</li>
+          <li>Click the GuardianLens extension</li>
+          <li>Capture listing, then seller behaviour</li>
+        </ol>
+      </div>
+    </article>
+
+    <article class="collection-mode replay-mode">
+      <div class="mode-number" aria-hidden="true">02</div>
+      <div>
+        <p class="eyebrow">CSV batch replay</p>
+        <h3>Upload a prepared URL list</h3>
+        <p>GuardianLens processes only the rows in your file. It never searches, paginates, or discovers additional listings.</p>
+        <form id="csvImportForm" class="import-form" enctype="multipart/form-data">
+          <label>Batch name <span class="optional">Optional</span><input id="csvBatchName" name="batch_name" type="text" maxlength="120" placeholder="Carousell full batch"></label>
+          <label class="upload-zone" id="csvDropZone">
+            <span class="upload-mark" aria-hidden="true">CSV</span>
+            <span><b>Choose or drop a CSV</b><small>url, source_url, listing_url, or product_url · maximum {{ '{:,}'.format(csv_import_max_rows) }} rows</small></span>
+            <input id="csvFile" name="file" type="file" accept=".csv,text/csv" required>
+          </label>
+          <div class="import-file-row"><span id="csvFileName">No file selected</span><button type="submit" id="csvImportButton">Import CSV</button></div>
+        </form>
+      </div>
+    </article>
+  </div>
+
+  <details class="manual-url-panel">
+    <summary>Prefer manual URL input? Paste URLs instead</summary>
+    <form id="manualImportForm" class="import-form">
+      <label>Batch name <span class="optional">Optional</span><input id="manualBatchName" name="batch_name" type="text" maxlength="120" placeholder="Hand-picked listings"></label>
+      <label>Listing URLs <span class="optional">One URL per line</span><textarea id="manualUrls" name="manual_urls" rows="6" placeholder="https://www.carousell.com.my/p/example-123456/&#10;https://www.mudah.my/example-654321.htm" required></textarea></label>
+      <div class="actions"><button type="submit" id="manualImportButton">Import pasted URLs</button><span class="muted">The browser runner uses exactly these URLs.</span></div>
+    </form>
+  </details>
+
+  <div id="replayNotice" class="collection-notice" role="status" aria-live="polite">{% if replay.batch %}Latest batch loaded: {{ replay.batch.name }}{% else %}Import a CSV or paste URLs to create a durable queue.{% endif %}</div>
+
+  <div class="replay-workspace{% if not replay.batch %} is-empty{% endif %}" id="replayWorkspace">
+    <div class="replay-heading">
+      <div>
+        <p class="eyebrow">Current replay batch</p>
+        <h3 id="replayBatchName">{% if replay.batch %}{{ replay.batch.name }}{% else %}No batch imported{% endif %}</h3>
+        <p class="muted" id="replayBatchMeta">{% if replay.batch %}{{ replay.batch.original_filename or 'Pasted URLs' }} · {{ replay.batch.status }}{% else %}Import a source above to begin.{% endif %}</p>
+      </div>
+      <span class="status status-large" id="replayBatchStatus">{% if replay.batch %}{{ replay.batch.status }}{% else %}idle{% endif %}</span>
+    </div>
+
+    <div class="controls replay-controls" aria-label="CSV replay controls">
+      <button type="button" id="replayStart" data-replay-command="start">Start</button>
+      <button type="button" class="secondary" data-replay-command="pause">Pause</button>
+      <button type="button" class="secondary" data-replay-command="resume">Resume</button>
+      <button type="button" class="danger" data-replay-command="stop">Stop</button>
+      <button type="button" class="secondary" data-replay-command="retry-failed">Retry Failed</button>
+    </div>
+
+    <div class="progress-track replay-progress" role="progressbar" aria-label="CSV replay progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="replayProgressFill" class="progress-fill"></div></div>
+    <p id="replayProgressLabel" class="muted" aria-live="polite">No replay batch is active.</p>
+
+    <div class="grid replay-metrics" aria-label="Import and batch counts">
+      <article><h3>Rows</h3><b id="rRows">0</b></article>
+      <article><h3>Valid URLs</h3><b id="rValid">0</b></article>
+      <article><h3>Invalid</h3><b id="rInvalid">0</b></article>
+      <article><h3>In-file duplicates</h3><b id="rImportDuplicates">0</b></article>
+      <article><h3>Already captured</h3><b id="rAlreadyCaptured">0</b></article>
+      <article><h3>Queued</h3><b id="rQueued">0</b></article>
+      <article><h3>Successful</h3><b id="rSuccessful">0</b></article>
+      <article><h3>Failed total</h3><b id="rFailed">0</b><small>Includes blocked</small></article>
+      <article><h3>Blocked</h3><b id="rBlocked">0</b></article>
+      <article><h3>Remaining</h3><b id="rRemaining">0</b></article>
+    </div>
+
+    <div class="current-capture" id="replayCurrent">
+      <div class="capture-pulse" aria-hidden="true"></div>
+      <div>
+        <p class="eyebrow">Current capture</p>
+        <b id="replayCurrentCategory">Waiting for a queued URL</b>
+        <a id="replayCurrentUrl" class="current-url" href="#" rel="noreferrer" target="_blank" hidden></a>
+        <span id="replayCurrentStatus" class="muted">The extension checks the queue while Chrome is open.</span>
+      </div>
+    </div>
+
+    <div class="replay-failures">
+      <h3>Recent import and capture failures</h3>
+      <div class="table-scroll"><table><thead><tr><th>Row</th><th>Platform</th><th>URL</th><th>Status</th><th>Reason</th><th>Attempt</th></tr></thead><tbody id="replayFailureRows"><tr><td colspan="6">No failures in the latest batch.</td></tr></tbody></table></div>
+    </div>
+  </div>
+</section>
                                                                                                                                                                   
                                                                                                                                                                   <section aria-labelledby="batch-heading">
                                                                                                                                                                     <h2 id="batch-heading">Batch processor</h2>
-                                                                                                                                                                      <p>Only records already captured by the extension are processed. Stop is graceful and finishes the current listing first.</p>
+                                                                                                                                                                      <p>Process the manual captured backlog. CSV replay invokes this same processing function automatically after each browser capture. Stop is graceful and finishes the current listing first.</p>
                                                                                                                                                                         <div class="controls">
                                                                                                                                                                             <label>Duration<select id="duration"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="120">2 hours</option><option value="">Unlimited</option></select></label>
                                                                                                                                                                                 <label>Maximum records<select id="limit"><option value="1">1</option><option value="5">5</option><option value="10">10</option><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="">All pending</option></select></label>

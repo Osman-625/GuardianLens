@@ -133,7 +133,23 @@ class BatchManager:
                 if item_limit and attempted >= item_limit: break
                 c = connect()
                 row = c.execute(
-                    "SELECT listing_id FROM listings WHERE status='captured' ORDER BY captured_at LIMIT 1",
+                    """SELECT listing_id FROM listings
+                       WHERE status='captured'
+                         AND NOT (
+                           capture_source='csv_batch'
+                           AND EXISTS (
+                             SELECT 1 FROM capture_batch_items item
+                             WHERE (
+                                 item.listing_id=listings.listing_id
+                                 OR (
+                                     item.batch_id=listings.capture_batch_id
+                                     AND item.row_number=listings.csv_row
+                                 )
+                               )
+                               AND item.status IN ('opening','capturing','captured','processing')
+                           )
+                         )
+                       ORDER BY captured_at LIMIT 1""",
                 ).fetchone()
                 c.close()
                 if not row: break

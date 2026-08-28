@@ -60,3 +60,28 @@ def residual_pii(text: str | None) -> list[str]:
         if pattern.search(text):
             hits.append(name)
     return sorted(set(hits))
+
+# Non-informative filler an AI extractor (or a hurried human edit) can emit in
+# place of a real value. These must never be treated as legitimate listing data.
+PLACEHOLDER_TOKENS = {
+    "n/a", "n.a", "n.a.", "na", "none", "null", "undefined", "unknown",
+    "tbd", "todo", "test", "testing", "sample", "sample product",
+    "sample text", "example", "placeholder", "xxx", "xxxx", "xxxxx",
+    "string", "text", "lorem ipsum", "not available", "not applicable",
+    "no data", "no info", "no information", "-", "--", "...", "asdf",
+    "asdfgh", "qwerty", "123456",
+}
+REPEATED_CHAR = re.compile(r"^(.)\1{2,}$")
+
+def is_placeholder_value(value: object) -> bool:
+    """True when a field holds filler text instead of a real extracted value."""
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    if lowered in PLACEHOLDER_TOKENS:
+        return True
+    alnum = re.sub(r"[^a-z0-9]", "", lowered)
+    return bool(alnum) and bool(REPEATED_CHAR.match(alnum))

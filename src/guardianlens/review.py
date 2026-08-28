@@ -8,7 +8,7 @@ from .config import settings
 from .db import connect, transaction, now_iso
 from .states import transition
 from .dedupe import metadata_signature
-from .pii import scrub_text, residual_pii
+from .pii import scrub_text, residual_pii, is_placeholder_value
 from .images import validate_image_bytes
 
 EDITABLE = ["title","description","category","condition","price","currency","location_state","location_city","account_age_days","seller_rating","review_count","active_listing_count","language"]
@@ -53,6 +53,14 @@ def get_listing(listing_id: str) -> dict:
             # Templates use screenshot_path as the display gate. Preserve the
             # recorded value separately while avoiding a broken asset request.
             d["screenshot_path"] = None
+
+        d["seller_screenshot_storage_path"] = d["seller_screenshot_path"]
+        d["seller_screenshot_available"] = _image_file_available(
+            d["seller_screenshot_path"],
+            settings.data_dir / "private" / "screenshots" / d["platform"] / listing_id,
+        )
+        if not d["seller_screenshot_available"]:
+            d["seller_screenshot_path"] = None
 
         image_records = []
         for image in c.execute(
@@ -132,7 +140,7 @@ def _clean_updates(updates: dict) -> dict:
     return updates
 
 
-def _edit_listing_in_transaction(con, listing_id: str, updates: dict) -> dict:
+def _edit_listing_in_transaction(con, listing_id: str, updates: dict, reason: str | None = None) -> dict:
     row = _require_active_review(con, listing_id)
     updates = _clean_updates(updates)
     old = {k: row[k] for k in EDITABLE}
@@ -147,20 +155,21 @@ def _edit_listing_in_transaction(con, listing_id: str, updates: dict) -> dict:
     changes = {k:{"old":old[k],"new":new[k]} for k in EDITABLE if old[k] != new[k]}
     if changes:
         con.execute(
-            "INSERT INTO review_actions(review_action_id,listing_id,action,previous_data,updated_data,created_at) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO review_actions(review_action_id,listing_id,action,previous_data,updated_data,reason,created_at) VALUES(?,?,?,?,?,?,?)",
             (
                 str(uuid.uuid4()), listing_id, "edit",
                 json.dumps({k:v["old"] for k,v in changes.items()}, ensure_ascii=False),
                 json.dumps({k:v["new"] for k,v in changes.items()}, ensure_ascii=False),
+                (reason or "").strip()[:2000] or None,
                 now_iso(),
             ),
         )
     return changes
 
 
-def edit_listing(listing_id: str, updates: dict) -> dict:
+def edit_listing(listing_id: str, updates: dict, reason: str | None = None) -> dict:
     with transaction() as con:
-        return _edit_listing_in_transaction(con, listing_id, updates)
+        return _edit_listing_in_transaction(con, listing_id, updates, reason)
 
 
 def _cleanup_private_assets(listing_id: str, status: str) -> list[str]:
@@ -249,15 +258,24 @@ def _approve_in_transaction(con, listing_id: str) -> None:
     row = _require_active_review(con, listing_id)
     if residual_pii("\n".join(str(row[field] or "") for field in PII_FREE_TEXT_FIELDS)):
         raise ValueError("residual PII check failed")
-    for key in ("title", "category", "price", "currency"):
+    for key in ("title", "description", "category", "condition", "price", "currency", "location_state"):
         if row[key] in {None, ""}:
             raise ValueError(f"required field missing: {key}")
+    placeholder_fields = [key for key in PII_FREE_TEXT_FIELDS if is_placeholder_value(row[key])]
+    if placeholder_fields:
+        raise ValueError(
+            "placeholder or non-informative value present in: " + ", ".join(placeholder_fields)
+        )
     categories = {item["name"] for item in settings.categories()}
     if row["category"] not in categories:
         raise ValueError("category is not in configured category list")
     _verify_product_images(con, listing_id, row["platform"])
-    if all(row[key] in {None, ""} for key in SELLER_SIGNAL_FIELDS):
-        raise ValueError("at least one seller/behavioural field is required for approval")
+    missing_seller_fields = [key for key in SELLER_SIGNAL_FIELDS if row[key] in {None, ""}]
+    if missing_seller_fields:
+        raise ValueError(
+            "all seller/behavioural fields are required for approval, missing: "
+            + ", ".join(missing_seller_fields)
+        )
     duplicate = con.execute(
         """
         SELECT listing_id FROM listings
@@ -315,10 +333,10 @@ def approve(listing_id: str) -> None:
     _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
 
 
-def edit_and_approve(listing_id: str, updates: dict) -> dict:
+def edit_and_approve(listing_id: str, updates: dict, reason: str | None = None) -> dict:
     """Apply human corrections and approval in one SQLite transaction."""
     with transaction() as con:
-        changes = _edit_listing_in_transaction(con, listing_id, updates)
+        changes = _edit_listing_in_transaction(con, listing_id, updates, reason)
         _approve_in_transaction(con, listing_id)
     _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
     return changes

@@ -1,11 +1,17 @@
 # Data and Research Boundary
 
-## Manual collection boundary
+## Collection boundary
 
-The researcher manually searches the marketplace, chooses an individual listing, opens it,
-and presses **Capture Current Listing**. GuardianLens does not search, crawl, paginate,
-discover URLs, traverse seller profiles, select listings, or approve records unattended.
-Batch processing begins only after manual capture and selects only `captured` rows.
+The researcher supplies every individual listing, either by opening it and pressing
+**Capture Current Listing** or by uploading/pasting a prepared URL list. GuardianLens does
+not search, crawl, paginate, discover listing URLs, select listings, or approve records.
+CSV replay opens only queued URLs in the configured Chrome session and may open the seller
+profile linked by that listing only to preserve the behavioural signal. Manual and replay
+captures converge at the same `CaptureRequest` and downstream pipeline.
+
+Replay batches and every attempt are durable SQLite records. CAPTCHA, login, access-denied,
+bot-check, deleted, unavailable, timeout, and invalid-listing pages are recorded explicitly;
+GuardianLens does not bypass them.
 
 ## Approved research data
 

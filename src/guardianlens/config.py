@@ -69,6 +69,10 @@ class Settings:
     ai_max_attempts: int = _env_int("AI_MAX_ATTEMPTS", 3, minimum=1, maximum=5)
     ai_retry_base_seconds: float = _env_float("AI_RETRY_BASE_SECONDS", 1.0, minimum=0.0, maximum=30.0)
     ai_retry_max_seconds: float = _env_float("AI_RETRY_MAX_SECONDS", 8.0, minimum=0.0, maximum=60.0)
+    max_capture_attempts: int = _env_int("MAX_CAPTURE_ATTEMPTS", 2, minimum=1, maximum=10)
+    capture_page_timeout_seconds: int = _env_int("CAPTURE_PAGE_TIMEOUT_SECONDS", 45, minimum=10, maximum=180)
+    csv_import_max_rows: int = _env_int("CSV_IMPORT_MAX_ROWS", 10000, minimum=1, maximum=100000)
+    csv_import_max_bytes: int = _env_int("CSV_IMPORT_MAX_BYTES", 5 * 1024 * 1024, minimum=1024, maximum=50 * 1024 * 1024)
     operator_timezone: str = _env_text("OPERATOR_TIMEZONE", "Asia/Kuala_Lumpur")
 
     def __post_init__(self) -> None:

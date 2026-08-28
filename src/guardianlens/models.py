@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Literal
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 MAX_URL_LENGTH = 4096
@@ -27,6 +28,8 @@ class CaptureRequest(BaseModel):
     listing_evidence: ListingPageEvidence = Field(default_factory=ListingPageEvidence)
     visible_text: str | None = Field(default=None, max_length=MAX_VISIBLE_TEXT_LENGTH)
     marketplace_listing_id: str | None = Field(default=None, max_length=128)
+    capture_source: Literal["extension", "csv_batch"] = "extension"
+    batch_item_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("platform")
     @classmethod
@@ -58,9 +61,28 @@ class ReviewUpdate(BaseModel):
     active_listing_count: int | None = Field(default=None, ge=0, le=100_000_000)
     language: str | None = Field(default=None, max_length=100)
 
+class SellerCaptureRequest(BaseModel):
+    """The seller/profile page, captured as a separate step from the listing page.
+
+    seller_url is the tab's actual URL at capture time -- the same ground-truth
+    trust model CaptureRequest.source_url already uses, not a scraped guess.
+    """
+
+    seller_url: str = Field(max_length=MAX_URL_LENGTH)
+    screenshot_data_url: str = Field(max_length=MAX_SCREENSHOT_DATA_URL_LENGTH)
+    visible_text: str | None = Field(default=None, max_length=MAX_VISIBLE_TEXT_LENGTH)
+
 class BatchStartRequest(BaseModel):
     duration_minutes: int | None = Field(default=60, ge=1, le=720)
     item_limit: int | None = Field(default=50, ge=1, le=10000)
+
+
+class ReplayItemUpdate(BaseModel):
+    status: str = Field(max_length=40)
+    status_message: str | None = Field(default=None, max_length=500)
+    listing_id: str | None = Field(default=None, max_length=64)
+    error_type: str | None = Field(default=None, max_length=100)
+    error_message: str | None = Field(default=None, max_length=2000)
 
 class ExtractedListing(BaseModel):
     model_config = ConfigDict(extra="forbid")

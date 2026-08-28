@@ -1,8 +1,9 @@
 import json
 import pytest
 from pydantic import ValidationError
-from guardianlens.models import CaptureRequest
-from guardianlens.capture import INVALID_LISTING_MESSAGE, create_capture
+from guardianlens.models import CaptureRequest, SellerCaptureRequest
+from guardianlens.capture import INVALID_LISTING_MESSAGE, attach_seller_capture, create_capture
+from guardianlens.config import settings
 from guardianlens.db import connect
 from conftest import data_url, image_bytes
 
@@ -18,7 +19,11 @@ def test_manual_capture_creates_private_staging(isolated):
     assert row['marketplace_listing_id']=='123456'
     assert (isolated/row['screenshot_path']).exists()
     staged=json.loads((isolated/row['staging_text_path']).read_text())
-    assert staged=={'image_urls':['https://images.example.test/product.jpg']}
+    assert staged=={
+        'image_urls':['https://images.example.test/product.jpg'],
+        'visible_text':'Seller email [REDACTED] phone [REDACTED]',
+    }
+    assert 'abc@example.com' not in json.dumps(staged)
 
 def test_duplicate_url_blocked_at_capture(isolated):
     p=payload(); a=create_capture(p); b=create_capture(p)
@@ -130,3 +135,32 @@ def test_supplied_marketplace_id_must_match_url(isolated):
     with pytest.raises(ValueError) as exc:
         create_capture(request)
     assert str(exc.value)==INVALID_LISTING_MESSAGE
+
+def seller_payload(url='https://www.carousell.com.my/u/example-seller/'):
+    return SellerCaptureRequest(seller_url=url,screenshot_data_url=data_url(image_bytes()),visible_text='Joined 2019 Rating 4.8 phone +60 12-345 6789')
+
+def test_attach_seller_capture_records_url_and_scrubbed_text(isolated):
+    r=create_capture(payload())
+    result=attach_seller_capture(r['listing_id'],seller_payload())
+    assert result=={'listing_id':r['listing_id'],'seller_url':'https://www.carousell.com.my/u/example-seller/'}
+    c=connect(); row=c.execute('SELECT staging_text_path,seller_url,seller_screenshot_path FROM listings WHERE listing_id=?',(r['listing_id'],)).fetchone(); c.close()
+    assert row['seller_url']=='https://www.carousell.com.my/u/example-seller/'
+    assert row['seller_screenshot_path']
+    assert (settings.root/row['seller_screenshot_path']).exists()
+    staged=json.loads((settings.root/row['staging_text_path']).read_text())
+    assert staged['seller_visible_text']=='Joined 2019 Rating 4.8 phone [REDACTED]'
+    assert '+60 12-345 6789' not in json.dumps(staged)
+
+def test_attach_seller_capture_rejects_unknown_listing(isolated):
+    with pytest.raises(KeyError):
+        attach_seller_capture('does-not-exist',seller_payload())
+
+def test_attach_seller_capture_rejects_wrong_platform_host(isolated):
+    r=create_capture(payload())
+    with pytest.raises(ValueError,match='not a valid marketplace URL'):
+        attach_seller_capture(r['listing_id'],seller_payload('https://www.mudah.my/some-seller'))
+
+def test_attach_seller_capture_rejects_non_https_url(isolated):
+    r=create_capture(payload())
+    with pytest.raises(ValueError,match='not a valid marketplace URL'):
+        attach_seller_capture(r['listing_id'],seller_payload('http://www.carousell.com.my/u/example-seller/'))

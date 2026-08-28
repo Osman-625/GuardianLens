@@ -11,12 +11,12 @@ from .db import connect, transaction, now_iso
 from .states import transition
 from .extraction_contract import Extractor, normalize_extracted_listing
 from .errors import ProviderOperationError, classify_error, format_error_status, redact_secrets
-from .pii import scrub_text, residual_pii
+from .pii import scrub_text, residual_pii, is_placeholder_value
 from .dedupe import metadata_signature, hamming_hex
 from .images import download_image, validate_image_bytes, persist_product_image
 
 
-REQUIRED_FIELDS = ("title", "category", "price", "currency")
+REQUIRED_FIELDS = ("title", "description", "category", "condition", "price", "currency", "location_state")
 SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
 PII_FREE_TEXT_FIELDS = (
     "title",
@@ -127,6 +127,9 @@ def _load_listing_inputs(row) -> tuple[dict, list[str], list[str], Path]:
         isinstance(url, str) for url in image_urls_value
     ):
         raise ValueError("private staging image URLs are malformed")
+    for key in ("visible_text", "seller_visible_text"):
+        if staging.get(key) is not None and not isinstance(staging.get(key), str):
+            raise ValueError(f"private staging {key} is malformed")
     categories = [item["name"] for item in settings.categories()]
     image_urls = list(dict.fromkeys(image_urls_value))[: settings.max_product_images]
     return staging, categories, image_urls, screenshot
@@ -140,7 +143,9 @@ def _extract_with_retries(
     extractor: Extractor | None,
     extractor_factory: Callable[[], Extractor] | None,
     stop_event: threading.Event | None,
+    staging: dict | None = None,
 ) -> tuple[dict, Extractor, list[dict], set[str]]:
+    staging = staging or {}
     attempts: list[dict] = []
     active_extractor = extractor
     for attempt in range(1, settings.ai_max_attempts + 1):
@@ -154,6 +159,8 @@ def _extract_with_retries(
                     row["page_title"],
                     categories,
                     source_url=row["source_url"],
+                    visible_text=staging.get("visible_text"),
+                    seller_visible_text=staging.get("seller_visible_text"),
                 )
             )
             break
@@ -229,7 +236,7 @@ def process_listing(
         transition(listing_id, "processing", "batch processing started", con=con)
 
     try:
-        _, categories, image_urls, screenshot = _load_listing_inputs(row)
+        staging, categories, image_urls, screenshot = _load_listing_inputs(row)
     except Exception as exc:
         transition(
             listing_id,
@@ -246,7 +253,16 @@ def process_listing(
         extractor,
         extractor_factory,
         stop_event,
+        staging=staging,
     )
+    # Keep the crawler-provided category as provenance and use it only as a non-invented
+    # fallback when the existing extractor leaves category empty.
+    if (
+        row["capture_source"] == "csv_batch"
+        and row["source_category"]
+        and not extracted.get("category")
+    ):
+        extracted["category"] = row["source_category"]
     clean_json = json.dumps(extracted, ensure_ascii=False)
     provider, model, prompt_version = _extractor_identity(active_extractor)
     attempts.append(
@@ -374,12 +390,26 @@ def process_listing(
                 if extracted.get(key) in {None, ""}:
                     add_warning(con, listing_id, "missing_field", f"Missing required field: {key}")
                     needs_attention = True
-            if all(extracted.get(key) in {None, ""} for key in SELLER_SIGNAL_FIELDS):
+            placeholder_fields = [
+                key for key in PII_FREE_TEXT_FIELDS if is_placeholder_value(extracted.get(key))
+            ]
+            if placeholder_fields:
+                add_warning(
+                    con,
+                    listing_id,
+                    "placeholder_value",
+                    "Placeholder or non-informative value extracted for: " + ", ".join(placeholder_fields),
+                )
+                needs_attention = True
+            missing_seller_fields = [
+                key for key in SELLER_SIGNAL_FIELDS if extracted.get(key) in {None, ""}
+            ]
+            if missing_seller_fields:
                 add_warning(
                     con,
                     listing_id,
                     "missing_field",
-                    "No seller/behavioural signal extracted (account age, rating, review count, or active listings)",
+                    "Missing required seller/behavioural field(s): " + ", ".join(missing_seller_fields),
                 )
                 needs_attention = True
             residual = residual_pii(

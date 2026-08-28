@@ -183,9 +183,12 @@ def test_edit_and_approve_route_rolls_back_edits_when_approval_fails(isolated):
             data={
                 "token": token,
                 "title": "Must roll back",
+                "description": "A description",
                 "category": "Audio",
+                "condition": "Used",
                 "price": "123.45",
                 "currency": "MYR",
+                "location_state": "Selangor",
                 "submit_action": "approve",
             },
             follow_redirects=False,

@@ -6,6 +6,27 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS capture_batches (
+    batch_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK(source_type IN ('csv','manual')),
+    original_filename TEXT,
+    status TEXT NOT NULL CHECK(status IN ('draft','running','paused','stopping','stopped','completed')),
+    total_rows INTEGER NOT NULL DEFAULT 0,
+    valid_urls INTEGER NOT NULL DEFAULT 0,
+    invalid_rows INTEGER NOT NULL DEFAULT 0,
+    duplicate_rows INTEGER NOT NULL DEFAULT 0,
+    already_captured INTEGER NOT NULL DEFAULT 0,
+    queued_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 2,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_capture_batches_status_created
+ON capture_batches(status, created_at);
+
 CREATE TABLE IF NOT EXISTS listings (
     listing_id TEXT PRIMARY KEY,
     platform TEXT NOT NULL CHECK(platform IN ('carousell','mudah')),
@@ -29,6 +50,8 @@ CREATE TABLE IF NOT EXISTS listings (
     status TEXT NOT NULL,
     metadata_signature TEXT,
     screenshot_path TEXT,
+    seller_url TEXT,
+    seller_screenshot_path TEXT,
     staging_text_path TEXT,
     ai_extracted INTEGER NOT NULL DEFAULT 0,
     ai_provider TEXT,
@@ -39,6 +62,11 @@ CREATE TABLE IF NOT EXISTS listings (
     approved_at TEXT,
     rejected_at TEXT,
     processing_run_id TEXT,
+    capture_source TEXT NOT NULL DEFAULT 'extension',
+    capture_batch_id TEXT,
+    csv_row INTEGER,
+    original_csv_filename TEXT,
+    source_category TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -50,6 +78,48 @@ CREATE INDEX IF NOT EXISTS ix_listings_url_hash ON listings(source_url_hash);
 CREATE INDEX IF NOT EXISTS ix_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS ix_listings_platform_category ON listings(platform, category);
 CREATE INDEX IF NOT EXISTS ix_listings_metadata_signature ON listings(metadata_signature);
+CREATE INDEX IF NOT EXISTS ix_listings_capture_batch ON listings(capture_batch_id, csv_row);
+
+CREATE TABLE IF NOT EXISTS capture_batch_items (
+    batch_item_id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL REFERENCES capture_batches(batch_id) ON DELETE CASCADE,
+    row_number INTEGER NOT NULL,
+    source_url TEXT NOT NULL,
+    source_url_hash TEXT,
+    platform TEXT,
+    category TEXT,
+    status TEXT NOT NULL,
+    status_message TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    last_error_type TEXT,
+    last_error_message TEXT,
+    last_error_at TEXT,
+    UNIQUE(batch_id, row_number)
+);
+CREATE INDEX IF NOT EXISTS ix_capture_batch_items_queue
+ON capture_batch_items(batch_id, status, row_number);
+CREATE INDEX IF NOT EXISTS ix_capture_batch_items_url_hash
+ON capture_batch_items(source_url_hash);
+CREATE INDEX IF NOT EXISTS ix_capture_batch_items_listing
+ON capture_batch_items(listing_id);
+
+CREATE TABLE IF NOT EXISTS capture_batch_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    batch_item_id TEXT NOT NULL REFERENCES capture_batch_items(batch_item_id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    error_type TEXT,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_capture_batch_attempts_item
+ON capture_batch_attempts(batch_item_id, attempt_number);
 
 CREATE TABLE IF NOT EXISTS images (
     image_id TEXT PRIMARY KEY,
@@ -91,7 +161,8 @@ CREATE TABLE IF NOT EXISTS review_actions (
     started_at TEXT,
     finished_at TEXT,
     duration_seconds INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS warnings (
