@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.coverage
+htmlcov/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime artefacts
+runtime/
+*.log
+*.sqlite3
+
+# Model artefacts and data
+ml/checkpoints/
+ml/artifacts/
+research/data/
+research/exports/
+
+# OS and IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+.tmp/
+
+# TypeScript build cache
+*.tsbuildinfo

@@ -1,0 +1,16 @@
+run_id: dev-stub-001
+mode: development_stub
+seed: 42
+dataset_version: none
+warning: "This config does not represent a trained model or research result."
+components:
+  visual: contract-stub-v1
+  textual: contract-stub-v1
+  behavioural: contract-stub-v1
+  fusion: mean-stub-v1
+  calibrator: none
+  explanation: template-stub-v1
+band_boundaries:
+  low_max: 33
+  moderate_max: 66
+research_evidence_valid: false

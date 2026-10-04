@@ -1,0 +1,3 @@
+# Chapter 4 Incremental Note: Phase 0 First Draft
+
+A repository scaffold was created from the pre-implementation specification with separate frontend, API, machine-learning, database, research, and documentation areas. The API contract was exercised through automated tests covering submission, session ownership, unsupported-language rejection, missing behavioural information, feedback, and invalid image handling. The generated product currently runs only in an explicitly labelled development-stub mode, so its displayed scores are excluded from model evaluation and research evidence until the trained model bundle and Supabase adapter replace the stubs.

@@ -1,0 +1,12 @@
+{
+  "version": "templates-v1-draft",
+  "rules": {
+    "visual.sscd_corpus_match.raises": "This photo matches an image in the project's approved reference set. This indicates reuse within that set only.",
+    "visual.clip_mismatch.raises": "The photo and listing description appear less consistent than expected.",
+    "textual.off_platform_payment.raises": "The wording encourages payment or contact outside the marketplace.",
+    "behavioural.account_age_days.raises": "The visible seller account appears relatively new.",
+    "behavioural.rating.lowers": "The visible rating history provides some supporting information.",
+    "missing.behavioural": "Not enough information. Treated as unknown, not as suspicious."
+  },
+  "review_status": "Draft. Must be reviewed against trained SHAP feature keys before Gate C."
+}
