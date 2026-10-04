@@ -1,0 +1,73 @@
+# GuardianLens training configuration (methodology: V + T + B signals -> out-of-fold fusion -> calibration -> bands).
+# Every path is relative to this file.
+seed: 42
+
+paths:
+  splits_dir: data/splits
+  cache_dir: data/cache
+  runs_dir: runs
+  ledger: evaluations/test_ledger.json
+  # Images + image metadata live in the Approved Dataset folder (1.4 GB, not copied).
+  images_root: ../GuardianLens_Approved_Dataset
+  image_meta: ../GuardianLens_Approved_Dataset/approved_images.jsonl
+
+target:
+  name: is_risky_listing          # annotated risk (suspicious + scam_fraud = 1), NOT confirmed fraud
+  column: target
+  group_column: group_id          # rows sharing a group never cross train/validation/test, nor out-of-fold folds
+  id_column: listing_id
+
+cv:
+  folds: 5                        # group-safe, stratified folds for out-of-fold predictions (methodology step 5)
+  tune_folds: 3                   # inner folds for the small hyperparameter grids
+  nested_tuning: true             # re-select hyperparameters INSIDE every outer training partition (audit fix)
+
+# ---- The three signals of the methodology -------------------------------------------------------------------
+signals:
+  behavioural:                    # B: XGBoost on seller/listing behavioural fields, explicit missingness flags
+    enabled: true
+    features: [price, price_ratio_category, account_age_days, seller_rating, review_count, active_listing_count]
+  visual:                         # V: CLIP image-description consistency + SSCD copy detection vs a reference corpus
+    enabled: true
+    clip_model: openai/clip-vit-base-patch32
+    images_per_listing: 3
+    batch_size: 32
+    sscd_url: https://dl.fbaipublicfiles.com/sscd-copy-detection/sscd_disc_mixup.torchscript.pt
+    reference_corpus: train       # reference corpus = TRAIN images only (version recorded in the run); same-group images excluded
+    include_image_metadata: false # true adds image count/resolution/size to V (strong in exploration, NOT in the methodology)
+  textual:                        # T: XLM-RoBERTa fine-tune (GPU). Needs `gl all --xlmr` / `gl signal T`
+    enabled: true
+    impl: xlmr                    # xlmr = XLM-R fine-tune (GPU, methodology v1) | cues = TF-IDF + text cues (CPU, methodology v2)
+    model: xlm-roberta-base
+    max_length: 256
+    batch_size: 16
+    epochs: 10
+    patience: 3                   # early stopping on an inner, group-safe slice of each fold's TRAINING data
+    inner_val_fraction: 0.12
+    learning_rate: 2.0e-5
+    weight_decay: 0.01
+    warmup_ratio: 0.1
+    class_weighting: balanced     # balanced | none   (methodology: class weights)
+    save_fp16: true
+    tiny: false                   # true = tiny random model, plumbing tests only
+
+# Reference rows reported next to the signals (NOT part of the fusion)
+references:
+  text_baseline: {enabled: true}  # TF-IDF + logistic regression: methodology step 2, the workflow check
+  # everything-in-one gradient boosting. variant: parity = only inputs the current app can supply (no condition, offline
+  # duplicate/reuse flags, redaction count or capture-time image count; image measurements from the first 3 photos);
+  # full = the original exploratory feature set (kept for comparison with the v1/v2 reports)
+  exploratory_tabular: {enabled: true, variant: parity}
+
+# ---- Fusion, calibration, bands (methodology steps 5-6) ------------------------------------------------------
+fusion:
+  c_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]
+calibration:
+  method: sigmoid                 # fitted on out-of-fold stacker scores of TRAIN only; validation stays untouched evidence
+bands:
+  low_max_recall: 0.90            # Low/Moderate boundary: highest threshold that still keeps recall >= this on validation
+  high_min_precision: 0.60        # Moderate/High boundary: lowest threshold with precision >= this on validation
+
+evaluation:
+  bootstrap_resamples: 1000       # group-level bootstrap for confidence intervals
+  target_recall: 0.90

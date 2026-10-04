@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from fastapi.testclient import TestClient
 from httpx import Response
 from PIL import Image
@@ -138,3 +140,11 @@ def test_invalid_file_type_is_rejected_per_file() -> None:
         )
         assert response.status_code == 422
         assert response.json()["error"]["field"] == "images[0]"
+
+
+@pytest.mark.parametrize("price", ["NaN", "Infinity", "1e309"])
+def test_nonfinite_price_is_rejected_before_assessment(price: str) -> None:
+    with TestClient(create_app()) as client:
+        response = submit(client, price=price)
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_price"

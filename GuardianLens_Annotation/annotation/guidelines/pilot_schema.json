@@ -1,0 +1,49 @@
+{
+  "record_shape": "one row per (listing_id, annotator) pair",
+  "id_field": "annotator",
+  "required_evidence_field": "reason",
+  "fields": {
+    "listing_id": {
+      "type": "string (uuid)",
+      "required": true,
+      "note": "Foreign key into data/annotation_ready/listings.csv. Pre-filled -- never edit this column."
+    },
+    "label": {
+      "type": "enum",
+      "required": true,
+      "values": ["legitimate", "suspicious", "scam_fraud", "insufficient_evidence"]
+    },
+    "confidence": {
+      "type": "int",
+      "range": [1, 5],
+      "required": true,
+      "note": "Must follow from the signal tier and corroboration cited in the evidence fields, not be a separate free judgment. Precise per-value anchors: LABEL_SCHEMA.json's confidence_scale and DECISION_RULES.md's confidence table."
+    },
+    "reason": {
+      "type": "string",
+      "required": true,
+      "min_length": 10,
+      "note": "One-line summary of the overall call. See annotation/guidelines/EVIDENCE_RULES.md."
+    },
+    "evidence_text": {"type": "string", "required": false},
+    "evidence_image": {"type": "string", "required": false},
+    "evidence_behavioral": {"type": "string", "required": false},
+    "insufficient_evidence_reason": {
+      "type": "string",
+      "required": false,
+      "note": "Required in practice whenever label=insufficient_evidence -- see EVIDENCE_RULES.md."
+    },
+    "annotator": {
+      "type": "string",
+      "required": true,
+      "note": "e.g. 'claude_pilot_v1', 'codex_pilot_v1'. Pre-filled once per file."
+    },
+    "annotator_version": {"type": "string", "required": false},
+    "timestamp": {"type": "string (ISO8601)", "required": true}
+  },
+  "label_definitions_doc": "ANNOTATION_GUIDE.md",
+  "guide_doc": "ANNOTATION_GUIDE.md",
+  "decision_rules_doc": "DECISION_RULES.md",
+  "evidence_rules_doc": "EVIDENCE_RULES.md",
+  "_paths_note": "All four *_doc paths above are relative to this file's own directory (annotation/guidelines/) -- they resolve to the canonical copies, not the top-level pointer files."
+}

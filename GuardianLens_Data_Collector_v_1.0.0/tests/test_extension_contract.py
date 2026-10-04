@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 
-def test_extension_manifest_scopes_manual_and_replay_permissions_to_supported_hosts(isolated):
+def test_extension_manifest_keeps_broad_queue_capture_permission_optional(isolated):
     manifest = json.loads((isolated / "extension" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["manifest_version"] == 3
     assert set(manifest["permissions"]) == {"activeTab", "alarms", "scripting", "storage", "tabs"}
@@ -19,9 +19,10 @@ def test_extension_manifest_scopes_manual_and_replay_permissions_to_supported_ho
         "https://mudah.my/*",
         "https://www.mudah.my/*",
     }
-    serialized = json.dumps(manifest)
-    assert "<all_urls>" not in serialized
-    assert "https://*." not in serialized
+    assert manifest["optional_host_permissions"] == ["<all_urls>"]
+    assert "<all_urls>" not in manifest["host_permissions"]
+    assert "<all_urls>" not in manifest["permissions"]
+    assert "https://*." not in json.dumps(manifest)
 
 
 def test_popup_has_accessible_async_status(isolated):
@@ -33,6 +34,40 @@ def test_popup_has_accessible_async_status(isolated):
     assert 'role="status"' in popup
     assert 'aria-live="polite"' in popup
     assert 'aria-atomic="true"' in popup
+    for element_id in (
+        "capture",
+        "captureSeller",
+        "captureStage",
+        "processingStage",
+        "processNext",
+        "openDashboard",
+        "queuedPermission",
+        "enableQueuedCapture",
+        "disableQueuedCapture",
+    ):
+        assert f'id="{element_id}"' in popup
+    assert 'aria-label="URL capture progress"' in popup
+    assert 'aria-label="Preprocessing progress"' in popup
+
+    script = (ROOT / "extension" / "popup.js").read_text(encoding="utf-8")
+    assert "setInterval(refreshMonitor, 3000)" in script
+    assert "'/api/replay/status'" in script
+    assert "/api/batch/start" in script
+    assert "chrome.permissions.request({origins: ['<all_urls>']})" in script
+    assert "chrome.permissions.remove({origins: ['<all_urls>']})" in script
+
+
+def test_selected_provider_uses_high_contrast_solid_state(isolated):
+    from guardianlens.config import ROOT
+
+    styles = (ROOT / "src" / "guardianlens" / "static" / "styles.css").read_text(
+        encoding="utf-8"
+    )
+    assert "--selected-bg: #1e3a8a" in styles
+    assert ".provider-pill.active" in styles
+    assert "background: var(--selected-bg)" in styles
+    assert "color: var(--selected-fg)" in styles
+    assert 'content: "✓"' in styles
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
@@ -50,18 +85,18 @@ const valid = [
   ['http://127.0.0.1:1', 'http://127.0.0.1:1'],
   ['http://localhost:80', 'http://localhost:80'],
   [' http://localhost:65535 ', 'http://localhost:65535'],
-  ['http://127.0.0.1:8765/', 'http://127.0.0.1:8765'],
+  ['http://127.0.0.1:8770/', 'http://127.0.0.1:8770'],
 ];
 const invalid = [
   'http://127.0.0.1:0',
   'http://127.0.0.1:65536',
   'http://localhost',
-  'http://localhost:8765/path',
-  'http://localhost:8765?query=1',
-  'http://user@localhost:8765',
-  'http://localhost.evil.test:8765',
-  'https://localhost:8765',
-  'http://[::1]:8765',
+  'http://localhost:8770/path',
+  'http://localhost:8770?query=1',
+  'http://user@localhost:8770',
+  'http://localhost.evil.test:8770',
+  'https://localhost:8770',
+  'http://[::1]:8770',
 ];
 for (const [input, expected] of valid) {
   if (popup.normalizeServer(input) !== expected) process.exit(11);
@@ -178,6 +213,104 @@ if (background.classifyCaptureFailure(new Error('Cloudflare access denied')).sta
     assert "guardianlens.captureSeller'" in source
     assert "'/api/replay/claim'" in source
     assert "captureListingTab" in source
+    assert source.index("await hasQueuedCapturePermission()") < source.index("'/api/replay/claim'")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_replay_does_not_claim_when_optional_screenshot_permission_is_missing():
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+global.chrome = {
+  permissions: {contains: async () => false},
+  storage: {local: {get: async () => { throw new Error('storage must not be read'); }}},
+};
+global.fetch = async () => { throw new Error('claim request must not be sent'); };
+(async () => {
+  const result = await background.pollReplayQueue();
+  if (!result?.permission_required) process.exit(61);
+})().catch(() => process.exit(62));
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_seller_retry_uses_shared_browser_lock_and_requires_permission_before_claim():
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+let releasePermission;
+let storageReads = 0;
+let fetches = 0;
+global.chrome = {
+  permissions: {
+    contains: () => new Promise(resolve => { releasePermission = resolve; }),
+  },
+  storage: {local: {get: async () => { storageReads += 1; return {}; }}},
+};
+global.fetch = async () => { fetches += 1; throw new Error('must not claim'); };
+(async () => {
+  const first = background.pollSellerRetryQueue();
+  const second = await background.pollReplayQueue();
+  if (!second?.busy) process.exit(71);
+  releasePermission(false);
+  const result = await first;
+  if (!result?.permission_required) process.exit(72);
+  if (storageReads !== 0 || fetches !== 0) process.exit(73);
+})().catch(() => process.exit(74));
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
+def test_seller_retry_contract_checkpoints_url_and_preserves_block_classification():
+    from guardianlens.config import ROOT
+
+    background_path = ROOT / "extension" / "background.js"
+    script = r"""
+const background = require(process.argv[1]);
+if (typeof background.runSellerRetryItem !== 'function') process.exit(81);
+if (typeof background.waitForSellerUrl !== 'function') process.exit(82);
+const source = background.runSellerRetryItem.toString();
+const checkpoint = source.indexOf("status: 'opening_seller'");
+const visit = source.indexOf('await captureSellerTab');
+if (checkpoint < 0 || visit < 0 || checkpoint > visit) process.exit(83);
+const classified = background.classifyCaptureFailure({
+  captureStatus: 'access_denied',
+  message: 'Cloudflare challenge',
+});
+if (classified.status !== 'access_denied' || classified.error_type !== 'access_denied') {
+  process.exit(84);
+}
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(background_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+    source = background_path.read_text(encoding="utf-8")
+    assert "'/api/seller-retry/claim'" in source
+    assert "setTimeout(pollReplayQueue, 250)" not in source
+    assert "#cf-challenge-running" in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is optional")
@@ -191,3 +324,11 @@ def test_extension_background_js_syntax_is_valid():
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+    popup_result = subprocess.run(
+        ["node", "--check", str(ROOT / "extension" / "popup.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert popup_result.returncode == 0, popup_result.stderr or popup_result.stdout

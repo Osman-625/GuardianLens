@@ -4,6 +4,13 @@
 {% macro missing(value) -%}
   {% if value is none or value == '' %}<span class="field-state">Not extracted</span>{% endif %}
 {%- endmacro %}
+{% set bucket_qs = ('?bucket=' ~ bucket) if bucket and bucket != 'all' else '' %}
+{% macro review_nav() -%}
+<nav class="review-nav" aria-label="Step through queue">
+  {% if prev_id %}<a class="button secondary" href="/review/{{ prev_id }}{{ bucket_qs }}">&larr; Previous</a>{% else %}<button class="secondary" disabled>&larr; Previous</button>{% endif %}
+  {% if next_id %}<a class="button secondary" href="/review/{{ next_id }}{{ bucket_qs }}">Next &rarr;</a>{% else %}<button class="secondary" disabled>Next &rarr;</button>{% endif %}
+</nav>
+{%- endmacro %}
 
 <div class="page-heading">
   <div>
@@ -13,12 +20,14 @@
   </div>
   <a class="button secondary" href="/records/{{ item.listing_id }}">View full audit record</a>
 </div>
+{% if flash %}<div class="flash-success" role="status">&check; {{ flash }}</div>{% endif %}
+{{ review_nav() }}
 
 {% if not review_active %}
 <section class="review-gate">
   <h2>Start this review intentionally</h2>
   <p>Opening a record no longer changes its state or starts the timer. Begin when you are ready to verify the evidence and every field.</p>
-  <form method="post" action="/review/{{ item.listing_id }}/begin">
+  <form method="post" action="/review/{{ item.listing_id }}/begin{{ bucket_qs }}">
     <input type="hidden" name="token" value="{{ token }}">
     <button type="submit">Begin review</button>
   </form>
@@ -67,7 +76,7 @@
     {% if item.warnings %}
       <div class="warnings" role="status"><b>Warnings</b><ul>{% for warning in item.warnings %}<li>{{ warning.warning_type }}: {{ warning.message }}</li>{% endfor %}</ul></div>
     {% endif %}
-    <form method="post" action="/review/{{ item.listing_id }}/save" class="form" id="reviewEditForm">
+    <form method="post" action="/review/{{ item.listing_id }}/save{{ bucket_qs }}" class="form" id="reviewEditForm">
       <input type="hidden" name="token" value="{{ token }}">
       <label>Title {{ missing(item.title) }}<input name="title" value="{{ item.title or '' }}" autocomplete="off"></label>
       <label>Description {{ missing(item.description) }}<textarea name="description">{{ item.description or '' }}</textarea></label>
@@ -91,13 +100,15 @@
       <p id="unsavedReviewNotice" class="field-state" hidden>You have unsaved edits. Save them or use Edit + Approve; Reject, Skip, and Flag discard those edits.</p>
     </form>
     <div class="actions review-outcomes" aria-label="Review outcomes">
-      <form method="post" action="/review/{{ item.listing_id }}/action/rejected" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="danger">Reject</button></form>
-      <form method="post" action="/review/{{ item.listing_id }}/action/skipped" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="secondary">Skip</button></form>
-      <form method="post" action="/review/{{ item.listing_id }}/action/flagged" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="secondary">Flag</button></form>
+      <form method="post" action="/review/{{ item.listing_id }}/action/rejected{{ bucket_qs }}" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="danger">Reject</button></form>
+      <form method="post" action="/review/{{ item.listing_id }}/action/skipped{{ bucket_qs }}" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="secondary">Skip</button></form>
+      <form method="post" action="/review/{{ item.listing_id }}/action/flagged{{ bucket_qs }}" data-discard-edits><input type="hidden" name="token" value="{{ token }}"><button type="submit" class="secondary">Flag</button></form>
     </div>
+    {{ review_nav() }}
     <p><b>Source reference:</b> <a href="{{ item.source_url }}" target="_blank" rel="noreferrer">Open current listing <span class="sr-only">(opens in a new tab)</span></a></p>
     <p class="muted">If the live source differs from the screenshot or draft, do not silently overwrite either; verify and record the human correction.</p>
   </section>
 </div>
 {% endif %}
+{% include "_attention_history.html" %}
 {% endblock %}

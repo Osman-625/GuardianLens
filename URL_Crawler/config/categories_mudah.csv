@@ -1,0 +1,13 @@
+category,soft_target,full_target,seed_urls
+Phones,15,150,https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale
+Laptops,12,120,https://www.mudah.my/malaysia/computers-and-accessories-for-sale
+Audio,10,100,https://www.mudah.my/malaysia/tv-audio-video-for-sale
+Gaming,10,100,https://www.mudah.my/malaysia/games-and-consoles-for-sale
+Fashion,10,100,https://www.mudah.my/malaysia/women-collection-for-sale|https://www.mudah.my/malaysia/men-collection-for-sale
+Home Appliances,10,100,https://www.mudah.my/malaysia/home-appliances-and-kitchen-for-sale
+Cameras,8,80,https://www.mudah.my/malaysia/cameras-and-photography-for-sale
+Sports,7,70,https://www.mudah.my/malaysia/sports-outdoors-for-sale
+Wearables,6,60,https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=smartwatch|https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=apple+watch|https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=samsung+watch|https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=huawei+watch|https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=garmin+watch|https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=fitness+tracker
+Tablets,5,50,https://www.mudah.my/malaysia/mobile-phones-and-gadgets-for-sale?q=tablet
+Collectibles,5,50,https://www.mudah.my/malaysia/hobby-collectibles-for-sale
+Other,2,20,https://www.mudah.my/malaysia/others-for-sale

@@ -127,6 +127,8 @@
   {% endif %}
 </section>
 
+{% include "_attention_history.html" %}
+
 <section aria-labelledby="review-audit-heading">
   <h2 id="review-audit-heading">Human review audit</h2>
   {% if item.review_actions|default([]) %}

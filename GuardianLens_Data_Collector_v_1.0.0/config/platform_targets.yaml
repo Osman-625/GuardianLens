@@ -1,8 +1,8 @@
-total_target: 2500
+total_target: 2209
 platforms:
   carousell:
-    target: 1500
-    ratio: 0.60
+    target: 1410
+    ratio: 0.64
   mudah:
-    target: 1000
-    ratio: 0.40
+    target: 799
+    ratio: 0.36

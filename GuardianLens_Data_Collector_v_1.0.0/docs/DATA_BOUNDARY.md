@@ -7,18 +7,23 @@ The researcher supplies every individual listing, either by opening it and press
 not search, crawl, paginate, discover listing URLs, select listings, or approve records.
 CSV replay opens only queued URLs in the configured Chrome session and may open the seller
 profile linked by that listing only to preserve the behavioural signal. Manual and replay
-captures converge at the same `CaptureRequest` and downstream pipeline.
+captures converge at the same `CaptureRequest`. Replay commits every capture checkpoint before
+the operator starts the separate bounded pictures/AI preprocessing stage.
 
-Replay batches and every attempt are durable SQLite records. CAPTCHA, login, access-denied,
+Each import is also materialized as a viewable, formula-safe Stage 1 CSV under
+`data/private/replay_batches/<batch_id>/stage_1_urls.csv`. The capture pass verifies this
+immutable file against the durable SQLite queue before it claims a URL. Replay batches and
+every attempt remain durable SQLite records. CAPTCHA, login, access-denied,
 bot-check, deleted, unavailable, timeout, and invalid-listing pages are recorded explicitly;
-GuardianLens does not bypass them.
+GuardianLens does not bypass them. Failures are not retried inside the current capture pass or
+processing run; an operator may explicitly requeue an eligible failure only afterward.
 
 ## Approved research data
 
 Normal approved exports may contain cleaned listing text, platform/category metadata,
 research-relevant visible seller behaviour, product-image metadata/references, source
 provenance, normalized AI provider/model/prompt provenance, status history, and human
-correction/review audit data. Only `approved` records count toward 2,500.
+correction/review audit data. Only `approved` records count toward the dataset total.
 
 ## Private collection evidence
 

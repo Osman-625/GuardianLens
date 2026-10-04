@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "GuardianLens Data Collection",
-  "version": "2.0.0",
-  "description": "Capture the current marketplace listing manually or replay only the listing URLs queued by the local GuardianLens dashboard.",
+  "version": "1.0.0",
+  "description": "Capture listings manually or monitor a two-stage queued URL capture and preprocessing replay from the local GuardianLens dashboard.",
   "permissions": ["activeTab", "alarms", "scripting", "storage", "tabs"],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -12,6 +12,7 @@
     "https://mudah.my/*",
     "https://www.mudah.my/*"
   ],
+  "optional_host_permissions": ["<all_urls>"],
   "background": {"service_worker": "background.js"},
   "action": {"default_popup": "popup.html", "default_title": "GuardianLens Capture"}
 }

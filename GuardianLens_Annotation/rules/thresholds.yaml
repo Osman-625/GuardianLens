@@ -1,0 +1,6 @@
+critical_rule_min: 1
+strong_risk_score_min: 8
+strong_rule_count_min: 1
+suspicious_risk_score_min: 4
+legitimate_risk_score_max: 1
+legitimate_trust_score_min: 3

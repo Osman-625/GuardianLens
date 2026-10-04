@@ -5,6 +5,7 @@ import pytest
 from PIL import Image
 from guardianlens.config import settings
 from guardianlens.db import init_db
+from guardianlens import annotation_dataset as _annotation_dataset
 
 
 def image_bytes(size=(320,240), fmt='JPEG', value=180):
@@ -33,6 +34,11 @@ def isolated(tmp_path):
     try:
         yield root
     finally:
+        # A review action in this test may have scheduled a debounced
+        # background dataset refresh (see annotation_dataset.py). Drop it
+        # before restoring settings.root so a late timer firing after
+        # teardown can never touch the real project tree.
+        _annotation_dataset._cancel_scheduled_refresh_for_tests()
         object.__setattr__(settings, 'root', original_root)
         object.__setattr__(settings, 'mode', original_mode)
 

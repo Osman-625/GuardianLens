@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/cache/
+runs/*/models/
+runs/*/xlmr/
+.venv/

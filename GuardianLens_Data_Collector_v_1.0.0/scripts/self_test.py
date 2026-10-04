@@ -73,8 +73,8 @@ def run_self_test() -> list[str]:
     try:
         targets = yaml.safe_load((ROOT / "config/platform_targets.yaml").read_text(encoding="utf-8"))
         if (targets["total_target"], targets["platforms"]["carousell"]["target"],
-                targets["platforms"]["mudah"]["target"]) != (2500, 1500, 1000):
-            errors.append("platform targets do not match 2500 / 1500 / 1000 design")
+                targets["platforms"]["mudah"]["target"]) != (2209, 1410, 799):
+            errors.append("platform targets do not match 2209 / 1410 / 799 final design")
     except Exception as exc:
         errors.append(f"platform config invalid: {type(exc).__name__}")
     try:

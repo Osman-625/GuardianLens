@@ -8,6 +8,7 @@ from .db import connect, now_iso
 from .images import validate_image_bytes
 from .pii import residual_pii, is_placeholder_value
 from .states import TRANSITIONS, can_transition
+from .validation import REQUIRED_FIELDS
 
 STALE_REVIEW_SECONDS = 4 * 60 * 60
 STALE_INTERMEDIATE_SECONDS = 60 * 60
@@ -103,10 +104,9 @@ def data_integrity_report() -> dict:
                     history_status=history[-1]["to_status"],
                 )
 
-        required_approved = (
-            "title", "description", "category", "condition", "price", "currency",
-            "location_state", "approved_at",
-        )
+        # location_state is intentionally excluded: unresolvable after evidence-backed
+        # repair, stays null, does not block approval (matches review.py's approval gate).
+        required_approved = tuple(f for f in REQUIRED_FIELDS if f != "location_state") + ("approved_at",)
         configured_categories = {item["name"] for item in settings.categories()}
         for listing in approved:
             listing_id = listing["listing_id"]
@@ -220,7 +220,7 @@ def data_integrity_report() -> dict:
                         batch_item_id=item["batch_item_id"],
                         unfinished=len(unfinished_attempts),
                     )
-            elif item["status"] not in {"captured", "processing"} and unfinished_attempts:
+            elif unfinished_attempts:
                 add(
                     "terminal_replay_item_has_open_attempt",
                     batch_item_id=item["batch_item_id"],
@@ -228,7 +228,7 @@ def data_integrity_report() -> dict:
                 )
         active_item_groups = c.execute(
             """SELECT batch_id,COUNT(*) AS n FROM capture_batch_items
-               WHERE status IN ('opening','capturing','captured','processing')
+               WHERE status IN ('opening','capturing')
                GROUP BY batch_id HAVING COUNT(*)>1"""
         ).fetchall()
         for group in active_item_groups:
@@ -237,6 +237,84 @@ def data_integrity_report() -> dict:
                 batch_id=group["batch_id"],
                 count=group["n"],
             )
+
+        active_seller_batches = c.execute(
+            """SELECT retry_batch_id FROM seller_retry_batches
+               WHERE status IN ('running','paused','stopping')"""
+        ).fetchall()
+        if len(active_seller_batches) > 1:
+            add("multiple_active_seller_retry_batches", count=len(active_seller_batches))
+        if active_batches and active_seller_batches:
+            add(
+                "replay_and_seller_retry_active_together",
+                replay_batches=len(active_batches),
+                seller_retry_batches=len(active_seller_batches),
+            )
+        processor = c.execute(
+            "SELECT command FROM processor_control WHERE control_id=1"
+        ).fetchone()
+        if (
+            active_seller_batches
+            and processor
+            and processor["command"] in {"running", "paused", "stopping"}
+        ):
+            add(
+                "processor_and_seller_retry_active_together",
+                seller_retry_batches=len(active_seller_batches),
+                processor_command=processor["command"],
+            )
+
+        seller_retry_items = c.execute(
+            "SELECT * FROM seller_retry_items ORDER BY retry_batch_id,created_at,retry_item_id"
+        ).fetchall()
+        for item in seller_retry_items:
+            attempt_rows = c.execute(
+                """SELECT * FROM seller_retry_attempts
+                   WHERE retry_item_id=? ORDER BY attempt_number""",
+                (item["retry_item_id"],),
+            ).fetchall()
+            if len(attempt_rows) != item["attempt_count"]:
+                add(
+                    "seller_retry_attempt_count_mismatch",
+                    retry_item_id=item["retry_item_id"],
+                    stored=item["attempt_count"],
+                    attempts=len(attempt_rows),
+                )
+            unfinished_attempts = [
+                attempt for attempt in attempt_rows if attempt["finished_at"] is None
+            ]
+            if item["status"] in {"opening_listing", "opening_seller"}:
+                if len(unfinished_attempts) != 1:
+                    add(
+                        "active_seller_retry_attempt_count_mismatch",
+                        retry_item_id=item["retry_item_id"],
+                        unfinished=len(unfinished_attempts),
+                    )
+            elif unfinished_attempts:
+                add(
+                    "terminal_seller_retry_item_has_open_attempt",
+                    retry_item_id=item["retry_item_id"],
+                    unfinished=len(unfinished_attempts),
+                )
+        active_seller_items = [
+            item
+            for item in seller_retry_items
+            if item["status"] in {"opening_listing", "opening_seller"}
+        ]
+        if len(active_seller_items) > 1:
+            add("multiple_active_seller_retry_items", count=len(active_seller_items))
+
+        stage_root = (settings.data_dir / "private" / "replay_batches").resolve()
+        stage_file_count = 0
+        for batch in c.execute("SELECT batch_id FROM capture_batches"):
+            stage_path = (stage_root / str(batch["batch_id"]) / "stage_1_urls.csv").resolve()
+            if not _is_within(stage_path, stage_root):
+                add("unsafe_replay_stage_file_path", batch_id=batch["batch_id"])
+            elif not stage_path.is_file():
+                add("missing_replay_stage_file", batch_id=batch["batch_id"])
+            else:
+                stage_file_count += 1
+        checks["replay_stage_file_count"] = stage_file_count
 
         duplicate_queries = {
             "duplicate_approved_urls": """
@@ -572,6 +650,10 @@ def data_integrity_report() -> dict:
             "SELECT COUNT(*) AS n FROM capture_batches"
         ).fetchone()["n"]
         checks["replay_item_count"] = len(replay_items)
+        checks["seller_retry_batch_count"] = c.execute(
+            "SELECT COUNT(*) AS n FROM seller_retry_batches"
+        ).fetchone()["n"]
+        checks["seller_retry_item_count"] = len(seller_retry_items)
         return {
             "generated_at": now_iso(),
             "approved": len(approved),
@@ -588,7 +670,7 @@ def security_report() -> dict:
     provider_keys = {
         "openai": settings.openai_api_key,
         "anthropic": settings.anthropic_api_key,
-        "openrouter": settings.openrouter_api_key,
+        "omniroute": settings.omniroute_api_key,
         "gemini": settings.gemini_api_key,
     }
     for provider_name, needle in provider_keys.items():

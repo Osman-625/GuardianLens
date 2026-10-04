@@ -348,12 +348,13 @@ def test_review_queue_is_bounded_but_reports_full_total(isolated):
 def test_dashboard_ui_contract_guards_async_provider_state_and_explains_missing_images():
     root = Path(__file__).resolve().parents[1]
     javascript = (root / "src/guardianlens/static/app.js").read_text(encoding="utf-8")
-    dashboard = (root / "src/guardianlens/templates/dashboard.html").read_text(encoding="utf-8")
+    dashboard = (root / "src/guardianlens/templates/_dashboard_operations.html").read_text(encoding="utf-8")
     record_detail = (root / "src/guardianlens/templates/record_detail.html").read_text(encoding="utf-8")
 
     assert "let modelRequestGeneration = 0;" in javascript
-    assert "requestGeneration !== modelRequestGeneration || currentProvider !== active" in javascript
-    assert "const previousDisabledStates = providerButtons.map((button) => button.disabled);" in javascript
+    assert "requestGeneration !== modelRequestGeneration || currentProvider !== active" in " ".join(javascript.split())
+    assert "const previousDisabledStates = providerButtons.map(" in javascript
+    assert "(button) => button.disabled" in javascript
     assert "button.disabled = true;" in javascript
     assert "button.disabled = previousDisabledStates[index];" in javascript
     assert 'aria-pressed="{% if provider.active %}true{% else %}false{% endif %}"' in dashboard

@@ -1,0 +1,106 @@
+# GuardianLens monorepo: source code + technical docs only.
+# Datasets, images, model/run outputs, databases, secrets and environments stay local.
+
+# ---------------------------------------------------------------- secrets
+.env
+.env.*
+!.env.example
+**/local_token.txt
+**/ai_provider_override.txt
+*.pem
+*.key
+
+# ------------------------------------------------- environments / caches
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+.next/
+frontend/out/
+*.tsbuildinfo
+.tmp/
+.qodo/
+.agents/
+.codex/
+.cursor/
+.vscode/
+.idea/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+condaenv.*.requirements.txt
+
+# ----------------------------------------------------------- OS / office
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+
+# ------------------------------------------------- databases / logs
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.out
+
+# -------------------------------------- datasets, images, models, archives
+GuardianLens_Approved_Dataset/
+*.jpg
+*.jpeg
+*.webp
+*.zip
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.pkl
+*.joblib
+*.parquet
+*.xlsx
+*.jsonl
+
+# Annotation: keep guidelines, schemas, rules, scripts, tests. Drop data + labelled output.
+GuardianLens_Annotation/data/
+GuardianLens_Annotation/archive/
+GuardianLens_Annotation/output/
+GuardianLens_Annotation/reports/
+GuardianLens_Annotation/annotation/runs/
+GuardianLens_Annotation/annotation/review/
+GuardianLens_Annotation/annotation/**/*.csv
+
+# Training: keep package, scripts, notebooks, tests. Drop splits, runs, build zips, reports.
+GuardianLens_Training/data/
+GuardianLens_Training/runs/
+GuardianLens_Training/dist/
+GuardianLens_Training/evaluations/
+GuardianLens_Training/audit/
+GuardianLens_Training/docs/history/
+
+# URL crawler: keep code + category config. Drop collected URLs and debug HTML.
+URL_Crawler/output/
+URL_Crawler/debug/
+URL_Crawler/All
+
+# Data collector: keep src, extension, scripts, tests, docs. Drop all collected data.
+GuardianLens_Data_Collector_v_1.0.0/data/**
+!GuardianLens_Data_Collector_v_1.0.0/data/**/
+!GuardianLens_Data_Collector_v_1.0.0/data/**/.gitkeep
+GuardianLens_Data_Collector_v_1.0.0/dist/
+GuardianLens_Data_Collector_v_1.0.0/logs/**
+!GuardianLens_Data_Collector_v_1.0.0/logs/.gitkeep
+GuardianLens_Data_Collector_v_1.0.0/scripts/_verify_*.json
+
+# Codebase: model artefacts + research data exports
+GuardianLens_codebase/ml/checkpoints/
+GuardianLens_codebase/ml/artifacts/
+GuardianLens_codebase/research/data/
+GuardianLens_codebase/research/exports/

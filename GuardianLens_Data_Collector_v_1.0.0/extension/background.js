@@ -20,6 +20,11 @@ function normalizeLocalServer(value) {
   return `http://${match[1].toLowerCase()}:${port}`;
 }
 
+async function hasQueuedCapturePermission() {
+  if (typeof chrome === 'undefined' || !chrome.permissions?.contains) return false;
+  return chrome.permissions.contains({origins: ['<all_urls>']});
+}
+
 function tabSnapshotMatches(candidate, original, expectedUrl) {
   if (!candidate || candidate.id !== original.id || candidate.windowId !== original.windowId) return false;
   try {
@@ -229,10 +234,18 @@ function collectPageData() {
     pageState = 'listing_unavailable';
   }
 
+  const pageHost = location.hostname.toLowerCase();
+  const marketplaceHosts = pageHost === 'mudah.my' || pageHost === 'www.mudah.my'
+    ? new Set(['mudah.my', 'www.mudah.my'])
+    : new Set(['carousell.com.my', 'www.carousell.com.my']);
   const sellerCandidates = [...document.querySelectorAll('a[href]')].map(anchor => {
     try {
       const url = new URL(anchor.href, location.href);
-      if (url.protocol !== 'https:' || url.hostname !== location.hostname || url.href === location.href) return null;
+      if (
+        url.protocol !== 'https:'
+        || !marketplaceHosts.has(url.hostname.toLowerCase())
+        || url.href === location.href
+      ) return null;
       const candidatePath = url.pathname.toLowerCase();
       if (/^\/p\//.test(candidatePath) || /-[1-9]\d*\.htm\/?$/.test(candidatePath)) return null;
       const text = normalizeText(anchor.innerText || anchor.textContent || anchor.getAttribute('aria-label')).toLowerCase();
@@ -273,7 +286,10 @@ function collectVisibleText() {
     document.querySelector('iframe[src*="recaptcha" i], [class*="captcha" i], [id*="captcha" i]')
     || /captcha|verify (?:that )?you are human|complete the security check/.test(sample)
   ) pageState = 'captcha';
-  else if (/access denied|request blocked|checking your browser|just a moment/.test(sample)) pageState = 'access_denied';
+  else if (
+    /access denied|request blocked|checking your browser|just a moment/.test(sample)
+    || document.querySelector('[data-ray], #cf-challenge-running, .cf-browser-verification')
+  ) pageState = 'access_denied';
   else if (/\/(?:login|signin|sign-in)(?:\/|$)/.test(path) || /(?:log|sign) in to (?:continue|view)/.test(sample)) pageState = 'login_required';
   return {
     source_url: location.href,
@@ -387,6 +403,78 @@ async function waitForCapturablePage(tabId, expectedPlatform, timeoutSeconds) {
   );
 }
 
+async function waitForSellerUrl(tabId, expectedPlatform, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let lastPage = null;
+  while (Date.now() < deadline) {
+    try {
+      lastPage = await readListingPage(tabId);
+      const state = lastPage?.page_state || 'invalid_listing_page';
+      if (['captcha', 'access_denied', 'login_required', 'listing_unavailable'].includes(state)) {
+        throw new ReplayCaptureError(
+          state,
+          `Seller link could not be derived because the listing page reported ${state.replace('_', ' ')}.`,
+        );
+      }
+      if (detectPlatform(lastPage?.source_url) !== expectedPlatform
+        || !listingIdFromUrl(expectedPlatform, lastPage?.source_url)) {
+        throw new ReplayCaptureError(
+          'invalid_listing_page',
+          'The saved listing URL did not resolve to its original Mudah listing page.',
+        );
+      }
+      if (lastPage.seller_url && detectPlatform(lastPage.seller_url) === expectedPlatform) {
+        return lastPage.seller_url;
+      }
+    } catch (error) {
+      if (error?.captureStatus) throw error;
+    }
+    await wait(1000);
+  }
+  throw new ReplayCaptureError(
+    'seller_url_not_found',
+    lastPage
+      ? 'The listing loaded, but no seller/profile link appeared before the retry timed out.'
+      : 'The listing could not be inspected to derive its seller/profile link.',
+  );
+}
+
+async function waitForSellerPage(tabId, expectedPlatform, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let lastPage = null;
+  while (Date.now() < deadline) {
+    try {
+      const [injected] = await chrome.scripting.executeScript({
+        target: {tabId},
+        func: collectVisibleText,
+      });
+      lastPage = injected?.result || null;
+      if (!lastPage || detectPlatform(lastPage.source_url) !== expectedPlatform) {
+        throw new ReplayCaptureError(
+          'invalid_seller_page',
+          'Seller page redirected outside the listing marketplace.',
+        );
+      }
+      if (lastPage.page_state !== 'candidate') {
+        throw new ReplayCaptureError(
+          lastPage.page_state,
+          `Seller page could not be captured: ${lastPage.page_state.replace('_', ' ')}.`,
+        );
+      }
+      if (lastPage.visible_text && lastPage.visible_text.length >= 20) return lastPage;
+    } catch (error) {
+      if (error?.captureStatus) throw error;
+    }
+    await wait(1000);
+  }
+  throw new ReplayCaptureError(
+    'capture_timeout',
+    lastPage
+      ? 'Seller page loaded without enough visible behavioural evidence.'
+      : 'Timed out before GuardianLens could inspect the seller page.',
+  );
+}
+
 async function captureListingTab(tab, serverOrigin, token, options = {}) {
   const platform = options.platform || detectPlatform(tab.url);
   if (!platform) throw new ReplayCaptureError('invalid_listing_page', INDIVIDUAL_LISTING_ERROR);
@@ -429,13 +517,12 @@ async function captureListingTab(tab, serverOrigin, token, options = {}) {
 async function captureSellerTab(tab, sellerUrl, listingId, platform, serverOrigin, token, timeoutSeconds) {
   await chrome.tabs.update(tab.id, {url: sellerUrl, active: true});
   const loaded = await waitForTabComplete(tab.id, timeoutSeconds);
-  if (detectPlatform(loaded.url) !== platform) throw new Error('Seller page redirected outside the listing marketplace.');
-  const [injected] = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: collectVisibleText});
-  const page = injected?.result;
-  if (!page || detectPlatform(page.source_url) !== platform) throw new Error('Seller page could not be captured.');
-  if (page.page_state !== 'candidate') {
-    throw new ReplayCaptureError(page.page_state, `Seller page could not be captured: ${page.page_state.replace('_', ' ')}.`);
+  if (detectPlatform(loaded.url) !== platform) {
+    throw new ReplayCaptureError('invalid_seller_page', 'Seller page redirected outside the listing marketplace.');
   }
+  // A completed navigation can still precede client-rendered profile text or a delayed
+  // anti-bot interstitial. Poll the page state briefly instead of taking the first DOM frame.
+  const page = await waitForSellerPage(tab.id, platform, timeoutSeconds);
   await chrome.tabs.update(tab.id, {active: true});
   const before = await chrome.tabs.get(tab.id);
   if (!tabSnapshotMatches(before, tab, page.source_url)) throw new Error(TAB_CHANGED_ERROR);
@@ -457,6 +544,104 @@ async function updateReplayItem(serverOrigin, token, itemId, update) {
     method: 'POST',
     body: JSON.stringify(update),
   });
+}
+
+async function updateSellerRetryItem(serverOrigin, token, itemId, leaseToken, update) {
+  return requestJson(serverOrigin, `/api/seller-retry/items/${encodeURIComponent(itemId)}`, token, {
+    method: 'POST',
+    body: JSON.stringify({lease_token: leaseToken, ...update}),
+  });
+}
+
+async function runSellerRetryItem(item, serverOrigin, token) {
+  let retryWindow = null;
+  let evidenceRequestStarted = false;
+  try {
+    retryWindow = await chrome.windows.create({
+      url: 'about:blank',
+      focused: false,
+      type: 'normal',
+      width: 1280,
+      height: 900,
+    });
+    const tab = retryWindow.tabs?.[0] || (await chrome.tabs.query({windowId: retryWindow.id}))[0];
+    if (!tab?.id) throw new Error('Chrome did not create a seller retry tab.');
+
+    let sellerUrl = item.seller_url || null;
+    if (!sellerUrl) {
+      await chrome.tabs.update(tab.id, {url: item.source_url, active: true});
+      const loaded = await waitForTabComplete(tab.id, item.page_timeout_seconds);
+      if (detectPlatform(loaded.url) !== item.platform) {
+        throw new ReplayCaptureError(
+          'invalid_listing_page',
+          'Saved listing URL redirected outside its supported marketplace.',
+        );
+      }
+      sellerUrl = await waitForSellerUrl(tab.id, item.platform, item.page_timeout_seconds);
+      // Persist the derived URL before the profile navigation. A blocked visit or browser
+      // restart can then retry the seller directly without loading the listing again.
+      await updateSellerRetryItem(
+        serverOrigin,
+        token,
+        item.retry_item_id,
+        item.lease_token,
+        {
+          status: 'opening_seller',
+          status_message: 'Seller URL recovered; waiting before the paced profile visit',
+          seller_url: sellerUrl,
+        },
+      );
+    }
+
+    const navigationDelay = Math.max(0, Number(item.navigation_delay_seconds) || 0);
+    if (navigationDelay) await wait(navigationDelay * 1000);
+    evidenceRequestStarted = true;
+    const sellerCapture = await captureSellerTab(
+      tab,
+      sellerUrl,
+      item.listing_id,
+      item.platform,
+      serverOrigin,
+      token,
+      item.page_timeout_seconds,
+    );
+    await updateSellerRetryItem(
+      serverOrigin,
+      token,
+      item.retry_item_id,
+      item.lease_token,
+      {
+        status: 'captured',
+        status_message: 'Seller behaviour evidence captured; listing queued for later AI extraction',
+        seller_url: sellerCapture.seller_url,
+      },
+    );
+  } catch (error) {
+    const classification = classifyCaptureFailure(error);
+    try {
+      await updateSellerRetryItem(
+        serverOrigin,
+        token,
+        item.retry_item_id,
+        item.lease_token,
+        {
+          status: 'failed',
+          status_message: evidenceRequestStarted
+            ? 'Paced seller profile capture did not complete'
+            : 'Seller profile URL could not be prepared',
+          error_type: classification.error_type,
+          error_message: String(error?.message || error).slice(0, 2000),
+        },
+      );
+    } catch (_) {
+      // If seller evidence committed before the acknowledgement was lost, backend lease
+      // recovery reconciles the staging/screenshot checkpoint instead of recapturing it.
+    }
+  } finally {
+    if (retryWindow?.id) {
+      try { await chrome.windows.remove(retryWindow.id); } catch (_) {}
+    }
+  }
 }
 
 async function runReplayItem(item, serverOrigin, token) {
@@ -542,27 +727,100 @@ async function runReplayItem(item, serverOrigin, token) {
   }
 }
 
-let replayPollActive = false;
+let browserCaptureActive = false;
+
+async function withBrowserCaptureLock(callback) {
+  // Set the shared lock before the first await. Both durable browser queues use the same Chrome
+  // session and captureVisibleTab permission, so even simultaneous alarms cannot open two items.
+  if (browserCaptureActive) return {busy: true};
+  browserCaptureActive = true;
+  try {
+    return await callback();
+  } finally {
+    browserCaptureActive = false;
+  }
+}
+
+async function queuedCaptureConnection() {
+  // Chrome grants activeTab only after a direct user gesture. Queue-created tabs require the
+  // separately granted optional permission. Never claim durable work before that permission.
+  if (!(await hasQueuedCapturePermission())) return {permission_required: true};
+  const values = await chrome.storage.local.get(['guardianlensServer', 'guardianlensToken']);
+  const serverOrigin = normalizeLocalServer(values.guardianlensServer);
+  const token = String(values.guardianlensToken || '').trim();
+  if (!serverOrigin || !token) return {unconfigured: true};
+  return {serverOrigin, token};
+}
+
+async function pollReplayQueueUnlocked(serverOrigin, token) {
+  const response = await requestJson(serverOrigin, '/api/replay/claim', token, {method: 'POST'});
+  if (!response.item) return false;
+  await runReplayItem(response.item, serverOrigin, token);
+  return true;
+}
+
+async function pollSellerRetryQueueUnlocked(serverOrigin, token) {
+  const response = await requestJson(serverOrigin, '/api/seller-retry/claim', token, {method: 'POST'});
+  if (!response.item) return false;
+  await runSellerRetryItem(response.item, serverOrigin, token);
+  return true;
+}
 
 async function pollReplayQueue() {
-  if (replayPollActive) return;
-  replayPollActive = true;
-  let processedItem = false;
-  try {
-    const values = await chrome.storage.local.get(['guardianlensServer', 'guardianlensToken']);
-    const serverOrigin = normalizeLocalServer(values.guardianlensServer);
-    const token = String(values.guardianlensToken || '').trim();
-    if (!serverOrigin || !token) return;
-    const response = await requestJson(serverOrigin, '/api/replay/claim', token, {method: 'POST'});
-    if (!response.item) return;
-    processedItem = true;
-    await runReplayItem(response.item, serverOrigin, token);
-  } catch (_) {
-    // Dashboard polling exposes backend state; the alarm will retry local connectivity later.
-  } finally {
-    replayPollActive = false;
-    if (processedItem) setTimeout(pollReplayQueue, 250);
-  }
+  return withBrowserCaptureLock(async () => {
+    try {
+      const connection = await queuedCaptureConnection();
+      if (connection.permission_required || connection.unconfigured) return connection;
+      const processedItem = await pollReplayQueueUnlocked(connection.serverOrigin, connection.token);
+      return {permission_required: false, processed_item: processedItem};
+    } catch (_) {
+      return {permission_required: false, processed_item: false};
+    }
+  });
+}
+
+async function pollSellerRetryQueue() {
+  return withBrowserCaptureLock(async () => {
+    try {
+      const connection = await queuedCaptureConnection();
+      if (connection.permission_required || connection.unconfigured) return connection;
+      const processedItem = await pollSellerRetryQueueUnlocked(
+        connection.serverOrigin,
+        connection.token,
+      );
+      return {permission_required: false, processed_item: processedItem};
+    } catch (_) {
+      return {permission_required: false, processed_item: false};
+    }
+  });
+}
+
+async function pollCaptureQueues() {
+  return withBrowserCaptureLock(async () => {
+    try {
+      const connection = await queuedCaptureConnection();
+      if (connection.permission_required || connection.unconfigured) return connection;
+      // A backend transaction also enforces mutual exclusion. Checking the paced seller queue
+      // first prevents a normal replay claim from delaying a seller visit whose not-before time
+      // has already arrived.
+      const sellerProcessed = await pollSellerRetryQueueUnlocked(
+        connection.serverOrigin,
+        connection.token,
+      );
+      if (sellerProcessed) {
+        return {permission_required: false, processed_item: true, queue: 'seller_retry'};
+      }
+      const replayProcessed = await pollReplayQueueUnlocked(connection.serverOrigin, connection.token);
+      return {
+        permission_required: false,
+        processed_item: replayProcessed,
+        queue: replayProcessed ? 'replay' : null,
+      };
+    } catch (_) {
+      // Dashboard polling exposes backend state; the next 30-second alarm retries connectivity.
+      return {permission_required: false, processed_item: false};
+    }
+  });
 }
 
 if (typeof module !== 'undefined') {
@@ -573,17 +831,25 @@ if (typeof module !== 'undefined') {
     detectPlatform,
     imageDirectoryKey,
     listingIdFromUrl,
+    hasQueuedCapturePermission,
     normalizeLocalServer,
+    pollCaptureQueues,
+    pollReplayQueue,
+    pollSellerRetryQueue,
+    runSellerRetryItem,
     safeApiErrorDetail,
     tabSnapshotMatches,
+    waitForSellerUrl,
   };
 }
 
 if (typeof chrome !== 'undefined') {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type !== 'guardianlens.pollReplay') return;
-    pollReplayQueue();
-    sendResponse({ok: true});
+    pollCaptureQueues()
+      .then(result => sendResponse({ok: true, ...(result || {})}))
+      .catch(error => sendResponse({ok: false, error: error.message}));
+    return true;
   });
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -619,15 +885,15 @@ if (typeof chrome !== 'undefined') {
   const replayAlarm = 'guardianlens-replay-poll';
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create(replayAlarm, {periodInMinutes: 0.5});
-    pollReplayQueue();
+    pollCaptureQueues();
   });
   chrome.runtime.onStartup.addListener(() => {
     chrome.alarms.create(replayAlarm, {periodInMinutes: 0.5});
-    pollReplayQueue();
+    pollCaptureQueues();
   });
   chrome.alarms.onAlarm.addListener(alarm => {
-    if (alarm.name === replayAlarm) pollReplayQueue();
+    if (alarm.name === replayAlarm) pollCaptureQueues();
   });
   chrome.alarms.create(replayAlarm, {periodInMinutes: 0.5});
-  setTimeout(pollReplayQueue, 250);
+  setTimeout(pollCaptureQueues, 250);
 }

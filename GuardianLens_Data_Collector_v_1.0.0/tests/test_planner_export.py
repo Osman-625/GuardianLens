@@ -10,11 +10,11 @@ from guardianlens.exports import export_approved
 def seed(con,platform,category,status='approved',idx=0):
     lid=str(uuid.uuid4());n=now_iso();con.execute("INSERT INTO listings(listing_id,platform,source_url,source_url_hash,title,category,price,currency,status,captured_at,approved_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(lid,platform,f'https://{platform}.test/{lid}',lid,'Item',category,10,'MYR',status,n,n if status=='approved' else None,n,n));return lid
 
-def test_planner_uses_1500_1000_targets(isolated):
+def test_planner_uses_1410_799_targets(isolated):
     with transaction() as con:
         for i in range(3): seed(con,'carousell','Phones',idx=i)
         for i in range(2): seed(con,'mudah','Cameras',idx=i)
-    p=planner_snapshot();assert p['total_target']==2500;assert p['platforms']['carousell']['target']==1500;assert p['platforms']['mudah']['target']==1000
+    p=planner_snapshot();assert p['total_target']==2209;assert p['platforms']['carousell']['target']==1410;assert p['platforms']['mudah']['target']==799
     assert p['approved_total']==5 and len(p['recommendations'])==3
 
 def test_export_has_no_private_screenshot_fields(isolated):

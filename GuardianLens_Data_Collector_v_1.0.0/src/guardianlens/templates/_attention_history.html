@@ -1,0 +1,29 @@
+<section aria-labelledby="attention-history-heading">
+  <h2 id="attention-history-heading">Agent inspection and changes</h2>
+  <p class="muted">These entries record automated work separately from human review. Verify the evidence before approval.</p>
+  {% for entry in attention_history|default([]) %}
+    <details{% if loop.first %} open{% endif %}>
+      <summary>{{ entry.run_mode|default('Inspection')|title }} · {{ entry.outcome|replace('_', ' ') }} · {{ entry.finished_at or entry.created_at or entry.run_id }}</summary>
+      {% if entry.findings %}
+        <ul class="audit-list">
+          {% for finding in entry.findings %}
+            <li><b>{{ finding.field or finding.code }}</b>: {{ finding.message }}{% if finding.action %}<br><span class="muted">Next action: {{ finding.action|replace('_', ' ') }}</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No remaining findings were recorded for this attempt.</p>
+      {% endif %}
+      {% if entry.changes %}
+        <div class="table-scroll"><table><thead><tr><th>Field</th><th>Before</th><th>After</th><th>Evidence</th><th>Extractor</th></tr></thead><tbody>
+          {% for change in entry.changes %}
+            <tr><td>{{ change.field }}</td><td>{{ change.before if change.before is not none else 'Not extracted' }}</td><td>{{ change.after if change.after is not none else 'Not extracted' }}</td><td><code class="audit-json">{{ change.evidence|tojson }}</code></td><td>{{ change.provider or 'Captured evidence' }}{% if change.model %} · {{ change.model }}{% endif %}{% if change.prompt_version %}<br>{{ change.prompt_version }}{% endif %}</td></tr>
+          {% endfor %}
+        </tbody></table></div>
+      {% else %}
+        <p>No fields changed.</p>
+      {% endif %}
+    </details>
+  {% else %}
+    <p>This record has no agent inspection history yet.</p>
+  {% endfor %}
+</section>

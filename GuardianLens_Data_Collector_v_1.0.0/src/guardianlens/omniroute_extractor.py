@@ -5,24 +5,26 @@ from .config import settings, provider_client_options
 from .errors import ProviderConfigurationError
 from .extraction_contract import SYSTEM_RULES, build_extraction_prompt, parse_extracted_listing
 
-class OpenRouterExtractor:
-    """Uses OpenRouter's OpenAI-compatible chat.completions endpoint (not the Responses API,
-    which OpenRouter's third-party models don't reliably support)."""
-    provider = "openrouter"
+class OmniRouteExtractor:
+    """Uses a local OmniRoute gateway's OpenAI-compatible chat.completions endpoint.
+    OmniRoute (https://github.com/diegosouzapw/OmniRoute) is self-hosted: it proxies whichever
+    upstream provider was connected in its own dashboard, so the model string is whatever
+    OmniRoute reports for that upstream (e.g. "gemini/gemini-3.5-flash-lite")."""
+    provider = "omniroute"
     def __init__(self):
-        if not settings.openrouter_api_key:
-            raise ProviderConfigurationError("OPENROUTER_API_KEY is missing")
+        if not settings.omniroute_api_key:
+            raise ProviderConfigurationError("OMNIROUTE_API_KEY is missing")
         try:
             from openai import OpenAI
         except ImportError as e:
             raise ProviderConfigurationError("OpenAI SDK is not installed") from e
         self.client = OpenAI(
-            api_key=settings.openrouter_api_key,
-            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.omniroute_api_key,
+            base_url=settings.omniroute_base_url,
             **provider_client_options(),
         )
-        self.model = settings.openrouter_model
-        self.prompt_version = settings.openrouter_prompt_version
+        self.model = settings.omniroute_model
+        self.prompt_version = settings.omniroute_prompt_version
 
     def extract(
         self,
@@ -33,16 +35,17 @@ class OpenRouterExtractor:
         source_url: str | None = None,
         visible_text: str | None = None,
         seller_visible_text: str | None = None,
+        captured_at: str | None = None,
     ) -> dict:
         mime = "image/jpeg" if screenshot_path.suffix.lower() in {".jpg", ".jpeg"} else f"image/{screenshot_path.suffix.lower().lstrip('.')}"
         image_b64 = base64.b64encode(screenshot_path.read_bytes()).decode("ascii")
         data_url = f"data:{mime};base64,{image_b64}"
         prompt = build_extraction_prompt(
             platform, page_title, source_url, categories, visible_text, seller_visible_text,
+            captured_at=captured_at,
         )
         response = self.client.chat.completions.create(
             model=self.model,
-            extra_headers={"HTTP-Referer": "http://127.0.0.1", "X-Title": "GuardianLens Data Collector"},
             messages=[
                 {"role": "system", "content": SYSTEM_RULES},
                 {"role": "user", "content": [

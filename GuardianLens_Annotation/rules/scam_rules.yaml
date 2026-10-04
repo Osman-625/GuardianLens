@@ -1,0 +1,354 @@
+# ---- Group A: critical fraud indicators ----
+- rule_id: A1_SEMAK_MULE_PHONE
+  name: Semak Mule positive phone number
+  description: >
+    NOT IMPLEMENTED: no Semak Mule lookup exists for this dataset and the spec forbids
+    scraping/fabricating it. semak_mule_phone_hit stays NULL for every row.
+  category: critical
+  severity: critical
+  weight: 10
+  required_fields: [semak_mule_phone_hit]
+  matching_method: field_equals_true
+  evidence_to_record: semak_mule_phone_hit
+  source_reference: "Semak Mule / PDRM CCID (not queried - out of scope)"
+  enabled: false
+
+- rule_id: A2_SEMAK_MULE_BANK
+  name: Semak Mule positive bank account
+  description: "Same limitation as A1 - not queried."
+  category: critical
+  severity: critical
+  weight: 10
+  required_fields: [semak_mule_bank_hit]
+  matching_method: field_equals_true
+  evidence_to_record: semak_mule_bank_hit
+  source_reference: "Semak Mule / PDRM CCID (not queried - out of scope)"
+  enabled: false
+
+- rule_id: A3_A7_CREDENTIAL_REQUEST
+  name: Request for OTP/TAC/PIN/CVV/bank login
+  description: "Text asks the buyer/seller for a one-time code, PIN, CVV, or bank credential."
+  category: critical
+  severity: critical
+  weight: 8
+  required_fields: [description]
+  matching_method: "keyword_group:credential_request"
+  evidence_to_record: matched_phrase
+  source_reference: "PDRM / NSRC common scam-script patterns"
+  enabled: true
+
+- rule_id: A8_A9_PHISHING_URL
+  name: Suspicious payment or phishing URL / fake marketplace payment page
+  description: "External URL classified suspicious by url-heuristics (Group G) - not yet implemented, see G1."
+  category: critical
+  severity: critical
+  weight: 8
+  required_fields: [description]
+  matching_method: url_suspicious
+  evidence_to_record: suspicious_domains
+  source_reference: "Carousell/Mudah Trust & Safety phishing advisories"
+  enabled: false
+
+- rule_id: A10_IMPERSONATION_PLUS_PAYMENT
+  name: Payment/credential request while impersonating platform/bank/courier
+  description: "Combo: impersonation keyword AND (credential_request OR advance_payment)."
+  category: critical
+  severity: critical
+  weight: 9
+  required_fields: [description]
+  matching_method: "keyword_combo:impersonation+credential_request|advance_payment"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell/Mudah Trust & Safety impersonation advisories"
+  enabled: false
+
+# ---- Group B: payment scam patterns ----
+- rule_id: B1_ADVANCE_PAYMENT_WEAK
+  name: Advance payment language (weak form)
+  description: "'deposit' alone, unqualified."
+  category: payment
+  severity: weak
+  weight: 1
+  required_fields: [description]
+  matching_method: "keyword_group:advance_payment:weak"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell Malaysia Trust & Safety guidance"
+  enabled: true
+
+- rule_id: B2_ADVANCE_PAYMENT_STRONG
+  name: Advance payment language (strong form)
+  description: "Deposit tied to an amount/urgency, e.g. 'deposit RM200 first before viewing'."
+  category: payment
+  severity: strong
+  weight: 4
+  required_fields: [description]
+  matching_method: "keyword_group:advance_payment:strong"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell Malaysia Trust & Safety guidance"
+  enabled: true
+
+# ---- Group C: agent/courier/release fee ----
+- rule_id: C1_RELEASE_FEE
+  name: Fee required to receive/release money
+  description: "Very strong pattern per spec - no legitimate transaction requires the payee to pay a fee to receive funds."
+  category: payment
+  severity: strong
+  weight: 6
+  required_fields: [description]
+  matching_method: "keyword_group:agent_courier_release_fee"
+  evidence_to_record: matched_phrase
+  source_reference: "NSRC / Bank Negara Malaysia scam advisories"
+  enabled: true
+
+# ---- Group D: fake payment confirmation ----
+- rule_id: D1_FAKE_PAYMENT_CONFIRMATION
+  name: Fake payment confirmation language
+  description: "Strength increases if combined with URL/QR/credential/impersonation - see D2."
+  category: payment
+  severity: medium
+  weight: 3
+  required_fields: [description]
+  matching_method: "keyword_group:fake_payment_confirmation"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell/Mudah Trust & Safety guidance"
+  enabled: true
+
+- rule_id: D2_FAKE_PAYMENT_CONFIRMATION_PLUS_LINK
+  name: Fake payment confirmation combined with external link or credential request
+  description: "Combo escalation of D1 - not yet implemented, see keyword_combo stub note."
+  category: payment
+  severity: strong
+  weight: 6
+  required_fields: [description]
+  matching_method: "keyword_combo:fake_payment_confirmation+credential_request|impersonation"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell/Mudah Trust & Safety guidance"
+  enabled: false
+
+# ---- Group E: off-platform activity ----
+- rule_id: E1_OFF_PLATFORM_WEAK
+  name: Off-platform contact mention (WhatsApp/Telegram/etc.)
+  description: "WEAK ALONE per spec - many legitimate sellers use WhatsApp (confirmed by Carousell's own guidance: pushing chat off-app is the flag, not the mention itself)."
+  category: contact
+  severity: weak
+  weight: 1
+  required_fields: [description]
+  matching_method: "keyword_group:off_platform_contact"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell Malaysia Trust & Safety guidance"
+  enabled: true
+
+- rule_id: E2_OFF_PLATFORM_PLUS_PAYMENT
+  name: Off-platform contact combined with payment/fee/credential pressure
+  description: "Combo escalation of E1 - not yet implemented, see keyword_combo stub note."
+  category: contact
+  severity: strong
+  weight: 5
+  required_fields: [description]
+  matching_method: "keyword_combo:off_platform_contact+advance_payment|agent_courier_release_fee|credential_request"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell Malaysia Trust & Safety guidance"
+  enabled: false
+
+# ---- Group F: platform/staff impersonation ----
+- rule_id: F1_IMPERSONATION_WEAK
+  name: Platform/staff impersonation mention (weak alone)
+  description: "A bare mention of 'Carousell admin'/'Mudah staff'/etc. is weak alone - see F2 for the escalated combo."
+  category: impersonation
+  severity: weak
+  weight: 1
+  required_fields: [description]
+  matching_method: "keyword_group:impersonation"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell/Mudah Trust & Safety impersonation advisories"
+  enabled: true
+
+- rule_id: F2_IMPERSONATION_PLUS_VERIFICATION
+  name: Impersonation combined with payment/verification/OTP/link/fee language
+  description: "Combo escalation of F1 - not yet implemented, see keyword_combo stub note."
+  category: impersonation
+  severity: strong
+  weight: 6
+  required_fields: [description]
+  matching_method: "keyword_combo:impersonation+credential_request|advance_payment|agent_courier_release_fee"
+  evidence_to_record: matched_phrase
+  source_reference: "Carousell/Mudah Trust & Safety impersonation advisories"
+  enabled: false
+
+# ---- Group G: suspicious links ----
+- rule_id: G1_SUSPICIOUS_URL
+  name: Suspicious URL present (shortener/IP-based/typosquat)
+  description: "Not yet implemented - url_suspicious matching method is a stub pending a follow-up domain-heuristics task. Disabled rather than faked."
+  category: link
+  severity: medium
+  weight: 3
+  required_fields: [description]
+  matching_method: url_suspicious
+  evidence_to_record: suspicious_domains
+  source_reference: "Common phishing-URL heuristics"
+  enabled: false
+
+# ---- Group H: price anomalies ----
+- rule_id: H1_PRICE_ANOMALY
+  name: Price far below comparable category median
+  description: >
+    Requires >=5 comparable listings (same category, same platform) per spec minimum-sample
+    rule. Tiers: 0.60-0.75=weak, 0.40-0.60=medium, 0.25-0.40=strong, <0.25=very strong.
+  category: price
+  severity: medium
+  weight: 3
+  required_fields: [price, category, price_ratio]
+  matching_method: price_ratio_tiered
+  evidence_to_record: price_ratio
+  source_reference: "Internal category-median comparison (no external source)"
+  enabled: true
+
+# ---- Group I: image reuse ----
+- rule_id: I1_CROSS_LISTING_IMAGE_REUSE
+  name: Exact/near-duplicate image reused by unrelated listings
+  description: "A listing's image(s) perceptually match image(s) in one or more unrelated listings, per the existing pHash audit."
+  category: image
+  severity: medium
+  weight: 4
+  required_fields: [reused_image_indicator]
+  matching_method: image_cross_listing_group
+  evidence_to_record: related_listing_ids
+  source_reference: "Internal pHash near-duplicate audit (dataset_validation_summary.json)"
+  enabled: true
+
+- rule_id: I2_IMAGE_REUSED_MANY_LISTINGS
+  name: Same image reused across many (5+) unrelated listings
+  description: "Escalated form of I1 - the same image appears across 5 or more unrelated listings, a much stronger reused/stock-photo signal."
+  category: image
+  severity: strong
+  weight: 6
+  required_fields: [reused_image_indicator]
+  matching_method: image_cross_listing_group_large
+  evidence_to_record: related_listing_ids
+  source_reference: "Internal pHash near-duplicate audit"
+  enabled: true
+
+# ---- Group J: description duplication ----
+- rule_id: J1_DESCRIPTION_NEAR_DUPLICATE
+  name: Near-identical description across unrelated listings/sellers
+  description: "Description text is near-identical (5-word shingle Jaccard >= 0.6) to another unrelated listing's description."
+  category: text
+  severity: medium
+  weight: 3
+  required_fields: [description]
+  matching_method: description_similarity
+  evidence_to_record: related_listing_ids
+  source_reference: "Internal normalized-text shingling"
+  enabled: true
+
+# ---- Group K: seller behavioural signals ----
+- rule_id: K1_NEW_ACCOUNT
+  name: Account age <= 7 days
+  description: "New account alone is only a weak signal per spec - never scam alone."
+  category: seller
+  severity: weak
+  weight: 1
+  required_fields: [account_age_days]
+  matching_method: "numeric_threshold:account_age_days<=7"
+  evidence_to_record: account_age_days
+  source_reference: "Common marketplace-fraud heuristics"
+  enabled: true
+
+- rule_id: K2_YOUNG_ACCOUNT
+  name: Account age 8-30 days
+  description: "Lighter-weight tier below K1 for a slightly older but still young account."
+  category: seller
+  severity: weak
+  weight: 0.5
+  required_fields: [account_age_days]
+  matching_method: "numeric_range:account_age_days:8:30"
+  evidence_to_record: account_age_days
+  source_reference: "Common marketplace-fraud heuristics"
+  enabled: true
+
+- rule_id: K3_ZERO_REVIEWS
+  name: Review count is a confirmed zero
+  description: "review_count is an evidenced zero (not NULL/missing) - weak alone per spec."
+  category: seller
+  severity: weak
+  weight: 1
+  required_fields: [review_count, review_count_missing]
+  matching_method: field_equals_zero_confirmed
+  evidence_to_record: review_count
+  source_reference: "Common marketplace-fraud heuristics"
+  enabled: true
+
+- rule_id: K4_POOR_RATING_SUFFICIENT_REVIEWS
+  name: Poor rating with a meaningful number of reviews
+  description: "seller_rating < 2.5 with review_count >= 5 - enough reviews that a poor rating is meaningful, not a fluke."
+  category: seller
+  severity: medium
+  weight: 3
+  required_fields: [seller_rating, review_count]
+  matching_method: "numeric_threshold_pair:seller_rating<2.5"
+  evidence_to_record: seller_rating
+  source_reference: "Common marketplace-fraud heuristics"
+  enabled: true
+
+# ---- Group L: trust signals (severity=trust, contribute to trust_score) ----
+- rule_id: L1_OLD_ACCOUNT
+  name: Account older than one year
+  description: "account_age_days >= 365 - a strong-tier trust signal."
+  category: trust
+  severity: trust
+  weight: 2
+  required_fields: [account_age_days]
+  matching_method: "numeric_threshold:account_age_days>=365"
+  evidence_to_record: account_age_days
+  source_reference: "Common marketplace-trust heuristics"
+  enabled: true
+
+- rule_id: L1B_MODERATELY_OLD_ACCOUNT
+  name: Account older than six months
+  description: "Vinted's own cited trust threshold is 6 months, not 1 year - a lighter-weight tier below L1."
+  category: trust
+  severity: trust
+  weight: 1
+  required_fields: [account_age_days]
+  matching_method: "numeric_range:account_age_days:180:364"
+  evidence_to_record: account_age_days
+  source_reference: "Vinted buyer/seller safety guidance (account age > 6 months as a trust marker)"
+  enabled: true
+
+- rule_id: L2_STRONG_RATING
+  name: Strong seller rating with enough reviews
+  description: "seller_rating >= 4.5 with review_count >= 10 - a meaningful positive track record."
+  category: trust
+  severity: trust
+  weight: 2
+  required_fields: [seller_rating, review_count]
+  matching_method: "numeric_threshold_pair:seller_rating>=4.5"
+  evidence_to_record: seller_rating
+  source_reference: "Common marketplace-trust heuristics"
+  enabled: true
+
+- rule_id: L3_REASONABLE_PRICE
+  name: Price within normal range of category median
+  description: "price_ratio between 0.85 and 1.5 of the category/platform median - an unremarkable, reasonable price."
+  category: trust
+  severity: trust
+  weight: 1
+  required_fields: [price_ratio]
+  matching_method: "numeric_range:price_ratio:0.85:1.5"
+  evidence_to_record: price_ratio
+  source_reference: "Internal category-median comparison"
+  enabled: true
+
+# ---- Group M: contradictions (text-only; conservative) ----
+- rule_id: M1_CATEGORY_KEYWORD_MISMATCH
+  name: Category contradicts an unambiguous keyword in the title
+  description: >
+    Conservative: ships with no hand-curated conflict pairs yet - ready to extend, deliberately
+    not populated with guessed conflict pairs at plan-writing time.
+  category: contradiction
+  severity: weak
+  weight: 1
+  required_fields: [category, title]
+  matching_method: category_keyword_conflict
+  evidence_to_record: matched_phrase
+  source_reference: "Internal conservative heuristic"
+  enabled: false

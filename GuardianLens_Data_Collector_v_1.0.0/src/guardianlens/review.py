@@ -8,12 +8,16 @@ from .config import settings
 from .db import connect, transaction, now_iso
 from .states import transition
 from .dedupe import metadata_signature
-from .pii import scrub_text, residual_pii, is_placeholder_value
+from .pii import scrub_text
 from .images import validate_image_bytes
+from .collection_handoff import schedule_annotation_dataset_refresh
+from .validation import (
+    PII_FREE_TEXT_FIELDS, REQUIRED_FIELDS,
+    inspect_approved_duplicates, validate_fields,
+    verify_product_images as _verify_product_images,
+)
 
 EDITABLE = ["title","description","category","condition","price","currency","location_state","location_city","account_age_days","seller_rating","review_count","active_listing_count","language"]
-PII_FREE_TEXT_FIELDS = ("title", "description", "condition", "location_state", "location_city", "language")
-SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
 REVIEWABLE = {"ready_for_review","needs_attention","under_review","skipped","flagged"}
 
 
@@ -100,6 +104,7 @@ def begin_review(listing_id: str) -> None:
         existing = con.execute("SELECT review_action_id FROM review_actions WHERE listing_id=? AND action='review_session' AND finished_at IS NULL ORDER BY created_at DESC LIMIT 1", (listing_id,)).fetchone()
         if not existing:
             con.execute("INSERT INTO review_actions(review_action_id,listing_id,action,started_at,created_at) VALUES(?,?,?,?,?)", (str(uuid.uuid4()),listing_id,"review_session",now_iso(),now_iso()))
+    schedule_annotation_dataset_refresh("review_started")
 
 def _finish_review_session(con, listing_id: str) -> int | None:
     row = con.execute("SELECT review_action_id,started_at FROM review_actions WHERE listing_id=? AND action='review_session' AND finished_at IS NULL ORDER BY created_at DESC LIMIT 1", (listing_id,)).fetchone()
@@ -169,7 +174,9 @@ def _edit_listing_in_transaction(con, listing_id: str, updates: dict, reason: st
 
 def edit_listing(listing_id: str, updates: dict, reason: str | None = None) -> dict:
     with transaction() as con:
-        return _edit_listing_in_transaction(con, listing_id, updates, reason)
+        changes = _edit_listing_in_transaction(con, listing_id, updates, reason)
+    schedule_annotation_dataset_refresh("review_saved")
+    return changes
 
 
 def _cleanup_private_assets(listing_id: str, status: str) -> list[str]:
@@ -223,98 +230,34 @@ def _raise_cleanup_failures(listing_id: str, status: str, failures: list[str]) -
     raise PrivateAssetCleanupError(f"{status} committed, but private asset cleanup failed: {message}")
 
 
-def _verify_product_images(con, listing_id: str, platform: str) -> None:
-    images = con.execute(
-        "SELECT * FROM images WHERE listing_id=? ORDER BY source_position",
-        (listing_id,),
-    ).fetchall()
-    if not images:
-        raise ValueError("at least one product image is required for approval")
-    allowed = (settings.data_dir / "images").resolve()
-    expected_directory = (allowed / platform / listing_id).resolve()
-    for image in images:
-        path = (settings.root / image["storage_path"]).resolve()
-        label = image["image_id"]
-        if image["platform"] != platform or path.parent != expected_directory:
-            raise ValueError(f"product image {label} is not stored under this listing's dataset directory")
-        if not path.is_file():
-            raise ValueError(f"product image {label} is missing from storage")
-        try:
-            data = path.read_bytes()
-            _fmt, width, height, sha256, phash_int = validate_image_bytes(data)
-        except (OSError, ValueError) as exc:
-            raise ValueError(f"product image {label} is unreadable or invalid: {exc}") from exc
-        if len(data) != image["file_size_bytes"]:
-            raise ValueError(f"product image {label} file size does not match its database metadata")
-        if sha256 != image["sha256"]:
-            raise ValueError(f"product image {label} SHA-256 does not match its database metadata")
-        if width != image["width"] or height != image["height"]:
-            raise ValueError(f"product image {label} dimensions do not match its database metadata")
-        if f"{phash_int:016x}" != image["perceptual_hash"]:
-            raise ValueError(f"product image {label} perceptual hash does not match its database metadata")
-
-
 def _approve_in_transaction(con, listing_id: str) -> None:
     row = _require_active_review(con, listing_id)
-    if residual_pii("\n".join(str(row[field] or "") for field in PII_FREE_TEXT_FIELDS)):
+    findings = validate_fields(dict(row))
+    if any(item["code"] == "pii" for item in findings):
         raise ValueError("residual PII check failed")
-    for key in ("title", "description", "category", "condition", "price", "currency", "location_state"):
-        if row[key] in {None, ""}:
+    for key in REQUIRED_FIELDS:
+        if key == "location_state":
+            continue  # unresolvable after evidence-backed repair: stays null, does not block approval
+        if any(item["code"] == "missing_field" and item["field"] == key for item in findings):
             raise ValueError(f"required field missing: {key}")
-    placeholder_fields = [key for key in PII_FREE_TEXT_FIELDS if is_placeholder_value(row[key])]
+    placeholder_fields = [item["field"] for item in findings if item["code"] == "placeholder_value"]
     if placeholder_fields:
         raise ValueError(
             "placeholder or non-informative value present in: " + ", ".join(placeholder_fields)
         )
-    categories = {item["name"] for item in settings.categories()}
-    if row["category"] not in categories:
+    if any(item["code"] == "category" for item in findings):
         raise ValueError("category is not in configured category list")
+    invalid = next((item for item in findings if item["code"] in {"invalid_type", "invalid_range"}), None)
+    if invalid:
+        raise ValueError(invalid["message"])
     _verify_product_images(con, listing_id, row["platform"])
-    missing_seller_fields = [key for key in SELLER_SIGNAL_FIELDS if row[key] in {None, ""}]
-    if missing_seller_fields:
-        raise ValueError(
-            "all seller/behavioural fields are required for approval, missing: "
-            + ", ".join(missing_seller_fields)
-        )
-    duplicate = con.execute(
-        """
-        SELECT listing_id FROM listings
-        WHERE listing_id<>? AND status='approved'
-          AND (
-            source_url_hash=? OR
-            (marketplace_listing_id IS NOT NULL AND marketplace_listing_id<>''
-             AND platform=? AND marketplace_listing_id=?)
-          )
-        LIMIT 1
-        """,
-        (listing_id, row["source_url_hash"], row["platform"], row["marketplace_listing_id"]),
-    ).fetchone()
-    if duplicate:
-        raise ValueError(f"source duplicate of approved listing {duplicate['listing_id']}")
+    # Seller/behavioural fields (account_age_days, seller_rating, review_count,
+    # active_listing_count) are not a hard approval requirement: when genuinely absent from
+    # the captured evidence (not just uncaptured), they stay null and do not block approval.
+    duplicates = inspect_approved_duplicates(con, dict(row))
+    if duplicates:
+        raise ValueError(duplicates[0]["message"])
     signature = metadata_signature(row["platform"], row["title"], row["description"], row["price"])
-    duplicate_metadata = con.execute(
-        "SELECT listing_id FROM listings WHERE listing_id<>? AND status='approved' AND metadata_signature=? LIMIT 1",
-        (listing_id, signature),
-    ).fetchone()
-    if duplicate_metadata:
-        raise ValueError(f"metadata duplicate of approved listing {duplicate_metadata['listing_id']}")
-    duplicate_image = con.execute(
-        """
-        SELECT approved_images.listing_id
-        FROM images current_images
-        JOIN images approved_images
-          ON approved_images.sha256=current_images.sha256
-         AND approved_images.listing_id<>current_images.listing_id
-        JOIN listings approved_listings
-          ON approved_listings.listing_id=approved_images.listing_id
-         AND approved_listings.status='approved'
-        WHERE current_images.listing_id=?
-        LIMIT 1
-        """,
-        (listing_id,),
-    ).fetchone()
-    if duplicate_image:
-        raise ValueError(f"exact product image duplicate of approved listing {duplicate_image['listing_id']}")
     approved_at = now_iso()
     con.execute(
         "UPDATE listings SET metadata_signature=?,approved_at=?,updated_at=? WHERE listing_id=?",
@@ -330,7 +273,10 @@ def _approve_in_transaction(con, listing_id: str) -> None:
 def approve(listing_id: str) -> None:
     with transaction() as con:
         _approve_in_transaction(con, listing_id)
-    _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
+    try:
+        _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
+    finally:
+        schedule_annotation_dataset_refresh("review_approved")
 
 
 def edit_and_approve(listing_id: str, updates: dict, reason: str | None = None) -> dict:
@@ -338,7 +284,10 @@ def edit_and_approve(listing_id: str, updates: dict, reason: str | None = None) 
     with transaction() as con:
         changes = _edit_listing_in_transaction(con, listing_id, updates, reason)
         _approve_in_transaction(con, listing_id)
-    _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
+    try:
+        _raise_cleanup_failures(listing_id, "approved", _cleanup_private_assets(listing_id, "approved"))
+    finally:
+        schedule_annotation_dataset_refresh("review_approved")
     return changes
 
 def action(listing_id: str, target: str, reason: str | None = None) -> None:
@@ -350,5 +299,8 @@ def action(listing_id: str, target: str, reason: str | None = None) -> None:
         duration = _finish_review_session(con, listing_id)
         if target == "rejected": con.execute("UPDATE listings SET rejected_at=?,updated_at=? WHERE listing_id=?", (now_iso(),now_iso(),listing_id))
         con.execute("INSERT INTO review_actions(review_action_id,listing_id,action,finished_at,duration_seconds,created_at) VALUES(?,?,?,?,?,?)", (str(uuid.uuid4()),listing_id,target,now_iso(),duration,now_iso()))
-    if target == "rejected":
-        _raise_cleanup_failures(listing_id, "rejected", _cleanup_private_assets(listing_id, "rejected"))
+    try:
+        if target == "rejected":
+            _raise_cleanup_failures(listing_id, "rejected", _cleanup_private_assets(listing_id, "rejected"))
+    finally:
+        schedule_annotation_dataset_refresh(f"review_{target}")

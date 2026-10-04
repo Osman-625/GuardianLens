@@ -9,6 +9,7 @@ from .db import connect, transaction, now_iso
 from .dedupe import canonicalize_url, url_hash
 from .images import save_private_screenshot
 from .pii import scrub_text
+from .collection_handoff import refresh_annotation_dataset_safely
 
 ALLOWED_HOSTS = {
     "carousell": ("carousell.com.my", "www.carousell.com.my"),
@@ -189,7 +190,14 @@ def attach_seller_capture(listing_id: str, payload) -> dict:
     """
     c = connect()
     try:
-        row = c.execute("SELECT platform,staging_text_path FROM listings WHERE listing_id=?", (listing_id,)).fetchone()
+        row = c.execute(
+            """SELECT listing.platform,listing.staging_text_path,listing.capture_source,
+                      batch.status AS capture_batch_status
+               FROM listings listing
+               LEFT JOIN capture_batches batch ON batch.batch_id=listing.capture_batch_id
+               WHERE listing.listing_id=?""",
+            (listing_id,),
+        ).fetchone()
     finally:
         c.close()
     if not row:
@@ -224,6 +232,12 @@ def attach_seller_capture(listing_id: str, payload) -> dict:
         _cleanup_capture_file(staging_temporary, settings.data_dir / "private" / "staging")
         _cleanup_capture_file(seller_screenshot_file, settings.data_dir / "private" / "screenshots")
         raise
+    if row["capture_source"] != "csv_batch" or row["capture_batch_status"] not in {
+        "running",
+        "paused",
+        "stopping",
+    }:
+        refresh_annotation_dataset_safely("seller_capture_completed")
     return {"listing_id": listing_id, "seller_url": seller_url}
 
 
@@ -294,4 +308,6 @@ def create_capture(payload) -> dict:
         _cleanup_capture_file(staging_path, settings.data_dir / "private" / "staging")
         _cleanup_capture_file(screenshot_file, settings.data_dir / "private" / "screenshots")
         raise
+    if provenance["capture_source"] == "extension":
+        refresh_annotation_dataset_safely("manual_capture_completed")
     return {"duplicate": False, "listing_id": listing_id, "status": "captured"}

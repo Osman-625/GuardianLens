@@ -10,6 +10,7 @@ install-dev:
 
 api:
 	uvicorn api.main:app --reload --port 8000
+	cd frontend && npm run dev
 
 web:
 	cd frontend && npm run dev

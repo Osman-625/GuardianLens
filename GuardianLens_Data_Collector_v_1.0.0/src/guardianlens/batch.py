@@ -7,11 +7,28 @@ from .db import connect, transaction, now_iso
 from .processor import process_listing
 from .errors import classify_error
 from .states import transition
+from .collection_handoff import refresh_annotation_dataset_safely
+from .attention_lock import ensure_attention_idle
 
 # A misconfigured provider (bad model name, malformed prompt schema, provider outage) fails every
 # item identically but isn't an auth/quota error, so it wouldn't otherwise halt the run. Without this,
 # a systemic error burns through the whole captured queue one API call at a time before anyone notices.
 CONSECUTIVE_FAILURE_LIMIT = 5
+
+# One unified processing queue: every listing with status='captured' is eligible regardless of
+# capture_source or capture_batch_id, except csv_batch rows whose own capture pass hasn't finished
+# yet (their batch is still running/paused/stopping) — those aren't durable/complete enough to process.
+READY_TO_PROCESS_SQL = """
+    status='captured'
+    AND NOT (
+      capture_source='csv_batch'
+      AND EXISTS (
+        SELECT 1 FROM capture_batches replay
+        WHERE replay.batch_id=listings.capture_batch_id
+          AND replay.status IN ('running','paused','stopping')
+      )
+    )
+"""
 
 class BatchManager:
     def __init__(self):
@@ -107,20 +124,53 @@ class BatchManager:
                 (recovered_iso,),
             )
 
-    def start(self, duration_minutes: int | None, item_limit: int | None, extractor_factory=None) -> str:
+    def start(
+        self,
+        duration_minutes: int | None,
+        item_limit: int | None,
+        extractor_factory=None,
+    ) -> str:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise RuntimeError("a batch run is already active")
             self._stop.clear(); self._pause.clear()
             run_id = str(uuid.uuid4()); self._run_id = run_id
             with transaction() as con:
-                con.execute("INSERT INTO processing_runs(run_id,started_at,duration_limit_minutes,item_limit,status) VALUES(?,?,?,?,?)", (run_id,now_iso(),duration_minutes,item_limit,"running"))
+                ensure_attention_idle(con)
+                seller_retry = con.execute(
+                    """SELECT retry_batch_id FROM seller_retry_batches
+                       WHERE status IN ('running','paused','stopping') LIMIT 1"""
+                ).fetchone()
+                if seller_retry:
+                    raise RuntimeError(
+                        "finish the paced seller-capture retry before starting preprocessing"
+                    )
+                queued = con.execute(f"SELECT 1 FROM listings WHERE {READY_TO_PROCESS_SQL} LIMIT 1").fetchone()
+                if not queued:
+                    raise RuntimeError("no captured records are awaiting preprocessing")
+                con.execute(
+                    """INSERT INTO processing_runs(
+                           run_id,started_at,duration_limit_minutes,item_limit,status
+                       ) VALUES(?,?,?,?,?)""",
+                    (run_id,now_iso(),duration_minutes,item_limit,"running"),
+                )
                 con.execute("UPDATE processor_control SET command='running',updated_at=? WHERE control_id=1", (now_iso(),))
-            self._thread = threading.Thread(target=self._run, args=(run_id,duration_minutes,item_limit,extractor_factory), daemon=True, name="guardianlens-batch")
+            self._thread = threading.Thread(
+                target=self._run,
+                args=(run_id,duration_minutes,item_limit,extractor_factory),
+                daemon=True,
+                name="guardianlens-batch",
+            )
             self._thread.start()
             return run_id
 
-    def _run(self, run_id: str, duration_minutes: int | None, item_limit: int | None, extractor_factory) -> None:
+    def _run(
+        self,
+        run_id: str,
+        duration_minutes: int | None,
+        item_limit: int | None,
+        extractor_factory,
+    ) -> None:
         started = time.monotonic(); attempted = successful = duplicates = ai_failures = image_failures = privacy_warnings = needs_attention = other_failures = failed = 0
         halt_reason: str | None = None
         consecutive_failures = 0
@@ -133,23 +183,9 @@ class BatchManager:
                 if item_limit and attempted >= item_limit: break
                 c = connect()
                 row = c.execute(
-                    """SELECT listing_id FROM listings
-                       WHERE status='captured'
-                         AND NOT (
-                           capture_source='csv_batch'
-                           AND EXISTS (
-                             SELECT 1 FROM capture_batch_items item
-                             WHERE (
-                                 item.listing_id=listings.listing_id
-                                 OR (
-                                     item.batch_id=listings.capture_batch_id
-                                     AND item.row_number=listings.csv_row
-                                 )
-                               )
-                               AND item.status IN ('opening','capturing','captured','processing')
-                           )
-                         )
-                       ORDER BY captured_at LIMIT 1""",
+                    f"""SELECT listing_id FROM listings
+                        WHERE {READY_TO_PROCESS_SQL}
+                        ORDER BY captured_at LIMIT 1"""
                 ).fetchone()
                 c.close()
                 if not row: break
@@ -198,6 +234,7 @@ class BatchManager:
             with transaction() as con:
                 con.execute("UPDATE processing_runs SET finished_at=?,duration_seconds=?,status=?,attempted=?,processed=?,successful=?,duplicates=?,ai_failures=?,image_failures=?,privacy_warnings=?,needs_attention=?,other_failures=?,failed=? WHERE run_id=?", (now_iso(),duration_seconds,final_status,attempted,attempted,successful,duplicates,ai_failures,image_failures,privacy_warnings,needs_attention,other_failures,failed,run_id))
                 con.execute("UPDATE processor_control SET command='idle',updated_at=? WHERE control_id=1", (now_iso(),))
+            refresh_annotation_dataset_safely("processing_run_completed")
 
     def pause(self) -> None:
         if not self._thread or not self._thread.is_alive(): raise RuntimeError("no active batch run")
@@ -225,9 +262,20 @@ class BatchManager:
             self._thread.join(timeout=2.0)
 
     def status(self) -> dict:
+        # Read liveness before the durable run row. If the worker finishes between
+        # these reads, callers poll once more instead of observing the impossible
+        # combination of ``thread_alive=False`` with a stale ``running`` row.
+        thread_alive = bool(self._thread and self._thread.is_alive())
         c = connect()
         ctrl = dict(c.execute("SELECT * FROM processor_control WHERE control_id=1").fetchone())
-        run = c.execute("SELECT * FROM processing_runs ORDER BY started_at DESC LIMIT 1").fetchone(); c.close()
-        return {"control": ctrl, "latest_run": dict(run) if run else None, "thread_alive": bool(self._thread and self._thread.is_alive())}
+        run = c.execute("SELECT * FROM processing_runs ORDER BY started_at DESC LIMIT 1").fetchone()
+        pending_count = c.execute(f"SELECT COUNT(*) AS n FROM listings WHERE {READY_TO_PROCESS_SQL}").fetchone()["n"]
+        c.close()
+        return {
+            "control": ctrl,
+            "latest_run": dict(run) if run else None,
+            "thread_alive": thread_alive,
+            "pending_count": pending_count,
+        }
 
 batch_manager = BatchManager()

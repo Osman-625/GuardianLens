@@ -10,7 +10,12 @@ htmlcov/
 .agents/
 .codex/
 .cursor/
+.qodo/
 node_modules/
+# Local Claude Code session lock: sessionId/pid/timestamp churns every session, not project state.
+.claude/scheduled_tasks.lock
+# Stray file some conda versions write into the repo root on env creation/export.
+condaenv.*.requirements.txt
 *.pyc
 *.sqlite
 *.sqlite3
@@ -23,12 +28,16 @@ node_modules/
 *.db-journal
 *.log
 *.out
+# Local verification reports can contain collected listing evidence.
+/scripts/_verify_*.json
 logs/**
 !logs/.gitkeep
 data/private/screenshots/**
 !data/private/screenshots/.gitkeep
 data/private/staging/**
 !data/private/staging/.gitkeep
+data/private/replay_batches/**
+!data/private/replay_batches/.gitkeep
 data/private/local_token.txt
 data/private/ai_provider_override.txt
 data/images/carousell/**
@@ -47,6 +56,8 @@ data/soft_test/runtime/private/screenshots/**
 !data/soft_test/runtime/private/screenshots/.gitkeep
 data/soft_test/runtime/private/staging/**
 !data/soft_test/runtime/private/staging/.gitkeep
+data/soft_test/runtime/private/replay_batches/**
+!data/soft_test/runtime/private/replay_batches/.gitkeep
 data/soft_test/runtime/images/carousell/**
 !data/soft_test/runtime/images/carousell/.gitkeep
 data/soft_test/runtime/images/mudah/**
@@ -58,3 +69,5 @@ data/soft_test/runtime/exports/**
 data/soft_test/runtime/reports/**
 !data/soft_test/runtime/reports/.gitkeep
 dist/
+CLAUDE.md
+AGENTS.md

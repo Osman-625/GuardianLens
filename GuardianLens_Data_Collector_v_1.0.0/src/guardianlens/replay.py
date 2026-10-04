@@ -2,22 +2,23 @@ from __future__ import annotations
 
 import csv
 import io
-import threading
+import os
 import uuid
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from .collection_handoff import refresh_annotation_dataset_safely
 from .capture import ALLOWED_HOSTS, LISTING_PATHS
 from .config import settings
 from .db import connect, now_iso, transaction
 from .dedupe import canonicalize_url, url_hash
-from .errors import classify_error
-from .processor import process_listing
+from .attention_lock import ensure_attention_idle
 
 
 URL_COLUMNS = ("url", "source_url", "listing_url", "product_url")
-ACTIVE_ITEM_STATUSES = ("opening", "capturing", "captured", "processing")
+ACTIVE_ITEM_STATUSES = ("opening", "capturing")
 REVIEW_STATUSES = (
     "ready_for_review",
     "needs_attention",
@@ -41,23 +42,219 @@ FAILURE_STATUSES = (
 RETRYABLE_FAILURE_STATUSES = tuple(
     status for status in FAILURE_STATUSES if status != "listing_unavailable"
 )
+PROCESSING_ACTIVE_STATUSES = ("processing", "ai_extracted", "validating")
+PROCESSING_FAILURE_STATUSES = ("processing_failed", "ai_failed", "image_failed")
 CLIENT_RESULT_STATUSES = {
     "capturing",
     "captured",
     "duplicate",
     *FAILURE_STATUSES,
 }
-TERMINAL_CAPTURE_STATUSES = {
-    "duplicate",
-    "invalid",
-    *FAILURE_STATUSES,
-    *REVIEW_STATUSES,
-}
-_CONTROL_ACTIVE = ("running", "paused", "stopping")
+STAGE_FILE_FIELDS = (
+    "source_row",
+    "platform",
+    "category",
+    "source_url",
+    "capture_ready",
+    "validation_status",
+    "validation_message",
+    "batch_item_id",
+)
 
 
 class CSVImportError(ValueError):
     """The supplied upload cannot be turned into an auditable replay batch."""
+
+
+def _canonical_batch_id(batch_id: str) -> str:
+    try:
+        return str(uuid.UUID(str(batch_id)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise KeyError(batch_id) from exc
+
+
+def stage_file_path(batch_id: str) -> Path:
+    """Return the fixed private path for a batch's human-readable Stage 1 file."""
+    canonical = _canonical_batch_id(batch_id)
+    return settings.data_dir / "private" / "replay_batches" / canonical / "stage_1_urls.csv"
+
+
+def _encode_stage_cell(value: object) -> str:
+    """Keep locally opened CSVs from treating user text as a spreadsheet formula."""
+    text = str(value or "")
+    if text.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
+
+
+def _decode_stage_cell(value: object) -> str:
+    text = str(value or "")
+    if text.startswith("'") and text[1:].lstrip().startswith(("=", "+", "-", "@")):
+        return text[1:]
+    return text
+
+
+def _stage_record(item: dict) -> dict[str, str]:
+    status = str(item["status"])
+    if "stage_capture_ready" in item:
+        capture_ready = bool(item["stage_capture_ready"])
+    elif status == "invalid":
+        capture_ready = False
+    elif status == "duplicate":
+        capture_ready = bool(item.get("attempt_count")) or (
+            bool(item.get("completed_at"))
+            and item.get("completed_at") != item.get("created_at")
+        )
+    else:
+        capture_ready = True
+    if status in {"invalid", "duplicate"}:
+        validation_status = status
+        validation_message = (
+            item.get("last_error_message")
+            or item.get("status_message")
+            or status.replace("_", " ").title()
+        )
+    else:
+        validation_status = "validated"
+        validation_message = "Validated and queued for the URL capture pass"
+    return {
+        "source_row": str(item["row_number"]),
+        "platform": str(item.get("platform") or ""),
+        "category": str(item.get("category") or ""),
+        "source_url": str(item["source_url"]),
+        "capture_ready": "yes" if capture_ready else "no",
+        "validation_status": validation_status,
+        "validation_message": str(validation_message),
+        "batch_item_id": str(item["batch_item_id"]),
+    }
+
+
+def _write_stage_file(batch_id: str, items: list[dict]) -> Path:
+    path = stage_file_path(batch_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=STAGE_FILE_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            for item in sorted(items, key=lambda row: int(row["row_number"])):
+                writer.writerow(
+                    {
+                        key: _encode_stage_cell(value)
+                        for key, value in _stage_record(item).items()
+                    }
+                )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
+
+
+def _read_stage_file(batch_id: str) -> dict[str, dict[str, str]]:
+    path = stage_file_path(batch_id)
+    if not path.is_file():
+        raise RuntimeError(
+            "Stage 1 URL file is missing. Restart GuardianLens to restore it before capture."
+        )
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if tuple(reader.fieldnames or ()) != STAGE_FILE_FIELDS:
+                raise RuntimeError("Stage 1 URL file has an unexpected header.")
+            rows: dict[str, dict[str, str]] = {}
+            for raw in reader:
+                if None in raw:
+                    raise RuntimeError("Stage 1 URL file contains an unexpected extra column.")
+                row = {key: _decode_stage_cell(raw.get(key)) for key in STAGE_FILE_FIELDS}
+                item_id = row["batch_item_id"]
+                if not item_id or item_id in rows:
+                    raise RuntimeError("Stage 1 URL file contains a missing or duplicate item ID.")
+                rows[item_id] = row
+                if len(rows) > settings.csv_import_max_rows:
+                    raise RuntimeError("Stage 1 URL file exceeds the configured row limit.")
+    except (OSError, csv.Error) as exc:
+        raise RuntimeError(f"Stage 1 URL file cannot be read: {exc}") from exc
+    return rows
+
+
+def _verify_stage_rows(con, batch_id: str, rows: dict[str, dict[str, str]]) -> None:
+    items = [
+        dict(row)
+        for row in con.execute(
+            """SELECT batch_item_id,row_number,source_url,platform,category,status,
+                      status_message,last_error_message,attempt_count,created_at,completed_at
+               FROM capture_batch_items WHERE batch_id=? ORDER BY row_number""",
+            (batch_id,),
+        )
+    ]
+    expected_ids = {item["batch_item_id"] for item in items}
+    if set(rows) != expected_ids:
+        raise RuntimeError("Stage 1 URL file does not match the durable queue rows.")
+    for item in items:
+        staged = rows[item["batch_item_id"]]
+        expected = _stage_record(item)
+        for field in ("source_row", "platform", "category", "source_url", "capture_ready"):
+            if staged[field] != expected[field]:
+                raise RuntimeError(
+                    "Stage 1 URL file was changed and no longer matches the durable queue. "
+                    "Re-import the source instead of editing the staged file."
+                )
+
+
+def ensure_stage_file(batch_id: str, *, force: bool = False) -> Path:
+    """Create or restore the Stage 1 artifact from the durable queue."""
+    canonical = _canonical_batch_id(batch_id)
+    path = stage_file_path(canonical)
+    with closing(connect()) as con:
+        batch = con.execute(
+            "SELECT batch_id FROM capture_batches WHERE batch_id=?", (canonical,)
+        ).fetchone()
+        if not batch:
+            raise KeyError(batch_id)
+        if path.is_file() and not force:
+            return path
+        items = [
+            dict(row)
+            for row in con.execute(
+                "SELECT * FROM capture_batch_items WHERE batch_id=? ORDER BY row_number",
+                (canonical,),
+            )
+        ]
+    return _write_stage_file(canonical, items)
+
+
+def stage_file_metadata(batch_id: str) -> dict:
+    path = stage_file_path(batch_id)
+    try:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        size_bytes = path.stat().st_size
+        exists = True
+    except OSError:
+        size_bytes = 0
+        exists = False
+    return {
+        "exists": exists,
+        "filename": path.name,
+        "relative_path": path.relative_to(settings.root).as_posix(),
+        "view_url": f"/asset/replay-stage/{_canonical_batch_id(batch_id)}",
+        "download_url": f"/asset/replay-stage/{_canonical_batch_id(batch_id)}?download=true",
+        "size_bytes": size_bytes,
+    }
+
+
+def get_stage_file(batch_id: str) -> Path:
+    canonical = _canonical_batch_id(batch_id)
+    with closing(connect()) as con:
+        batch = con.execute(
+            "SELECT 1 FROM capture_batches WHERE batch_id=?", (canonical,)
+        ).fetchone()
+    if not batch:
+        raise KeyError(batch_id)
+    path = stage_file_path(canonical)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return path
 
 
 def _clean_text(value: object, limit: int) -> str | None:
@@ -220,23 +417,16 @@ def _reconcile_owned_capture(con, item, message: str, reconciled_at: str) -> boo
     listing = _owned_capture(con, item)
     if not listing:
         return False
-    if listing["status"] in REVIEW_STATUSES:
-        target = listing["status"]
-    elif listing["status"] == "duplicate_blocked":
-        target = "duplicate"
-    else:
-        target = "captured"
-    completed_at = reconciled_at if target != "captured" else None
     con.execute(
         """UPDATE capture_batch_items
            SET status=?,status_message=?,listing_id=?,completed_at=?,updated_at=?,
                last_error_type=NULL,last_error_message=NULL,last_error_at=NULL
            WHERE batch_item_id=?""",
         (
-            target,
+            "captured",
             message,
             listing["listing_id"],
-            completed_at,
+            reconciled_at,
             reconciled_at,
             item["batch_item_id"],
         ),
@@ -347,6 +537,7 @@ def create_replay_batch(
                     last_error_message=str(exc),
                 )
                 counts["invalid_rows"] += 1
+            item["stage_capture_ready"] = item["status"] == "pending"
             prepared.append(item)
 
         con.execute(
@@ -400,6 +591,12 @@ def create_replay_batch(
                     error_at,
                 ),
             )
+    try:
+        _write_stage_file(batch_id, prepared)
+    except (OSError, csv.Error) as exc:
+        with transaction() as con:
+            con.execute("DELETE FROM capture_batches WHERE batch_id=?", (batch_id,))
+        raise CSVImportError(f"Could not store the Stage 1 URL file: {exc}") from exc
     return replay_snapshot(batch_id)
 
 
@@ -416,30 +613,8 @@ def create_manual_batch(text: str, name: str | None = None) -> dict:
     return create_replay_batch(parse_manual_rows(text), name=name, source_type="manual")
 
 
-def _sync_review_outcomes(con, batch_id: str | None = None) -> None:
-    params: tuple = ()
-    clause = ""
-    if batch_id:
-        clause = " AND capture_batch_items.batch_id=?"
-        params = (batch_id,)
-    placeholders = ",".join("?" for _ in REVIEW_STATUSES)
-    con.execute(
-        f"""UPDATE capture_batch_items
-            SET status=(SELECT status FROM listings WHERE listings.listing_id=capture_batch_items.listing_id),
-                status_message='Human review status updated',updated_at=?
-            WHERE listing_id IS NOT NULL
-              AND EXISTS(
-                  SELECT 1 FROM listings
-                  WHERE listings.listing_id=capture_batch_items.listing_id
-                    AND listings.status IN ({placeholders})
-                    AND listings.status<>capture_batch_items.status
-              ){clause}""",
-        (now_iso(), *REVIEW_STATUSES, *params),
-    )
-
-
 def replay_snapshot(batch_id: str | None = None) -> dict:
-    with transaction() as con:
+    with closing(connect()) as con:
         if batch_id:
             batch = con.execute(
                 "SELECT * FROM capture_batches WHERE batch_id=?", (batch_id,)
@@ -451,12 +626,16 @@ def replay_snapshot(batch_id: str | None = None) -> dict:
                             created_at DESC,rowid DESC LIMIT 1"""
             ).fetchone()
         if not batch:
-            return {"batch": None, "progress": None, "current": None, "recent_failures": []}
+            return {
+                "batch": None,
+                "stage_file": None,
+                "progress": None,
+                "processing": None,
+                "current": None,
+                "recent_attempts": [],
+                "recent_failures": [],
+            }
         batch_id = batch["batch_id"]
-        _sync_review_outcomes(con, batch_id)
-        batch = con.execute(
-            "SELECT * FROM capture_batches WHERE batch_id=?", (batch_id,)
-        ).fetchone()
         grouped = {
             row["status"]: row["n"]
             for row in con.execute(
@@ -466,7 +645,7 @@ def replay_snapshot(batch_id: str | None = None) -> dict:
         }
         current = con.execute(
             """SELECT * FROM capture_batch_items
-               WHERE batch_id=? AND status IN ('opening','capturing','captured','processing')
+               WHERE batch_id=? AND status IN ('opening','capturing')
                ORDER BY row_number LIMIT 1""",
             (batch_id,),
         ).fetchone()
@@ -477,18 +656,52 @@ def replay_snapshot(batch_id: str | None = None) -> dict:
                 ORDER BY COALESCE(last_error_at,updated_at) DESC,row_number DESC LIMIT 10""",
             (batch_id, *FAILURE_STATUSES, "invalid"),
         ).fetchall()
+        attempts = con.execute(
+            """SELECT attempt.attempt_id,attempt.attempt_number,attempt.started_at,
+                      attempt.finished_at,attempt.status,attempt.error_type,attempt.error_message,
+                      item.row_number,item.platform,item.source_url,item.status AS item_status
+               FROM capture_batch_attempts attempt
+               JOIN capture_batch_items item ON item.batch_item_id=attempt.batch_item_id
+               WHERE item.batch_id=?
+               ORDER BY attempt.started_at DESC,attempt.attempt_number DESC LIMIT 12""",
+            (batch_id,),
+        ).fetchall()
+        listing_grouped = {
+            row["status"]: row["n"]
+            for row in con.execute(
+                """SELECT status,COUNT(*) AS n FROM listings
+                   WHERE capture_source='csv_batch' AND capture_batch_id=? GROUP BY status""",
+                (batch_id,),
+            )
+        }
         total = int(batch["total_rows"])
         active = sum(grouped.get(status, 0) for status in ACTIVE_ITEM_STATUSES)
         remaining = grouped.get("pending", 0) + active
-        successful = sum(grouped.get(status, 0) for status in REVIEW_STATUSES)
+        captured = grouped.get("captured", 0)
         failed = sum(grouped.get(status, 0) for status in FAILURE_STATUSES)
         blocked = sum(
             grouped.get(status, 0)
             for status in ("blocked", "login_required", "captcha", "access_denied")
         )
-        processed = max(0, total - remaining)
+        resolved = max(0, total - remaining)
+        processing_active = sum(
+            listing_grouped.get(status, 0) for status in PROCESSING_ACTIVE_STATUSES
+        )
+        processing_successful = sum(
+            listing_grouped.get(status, 0) for status in REVIEW_STATUSES
+        )
+        processing_failed = sum(
+            listing_grouped.get(status, 0) for status in PROCESSING_FAILURE_STATUSES
+        )
+        processing_duplicates = listing_grouped.get("duplicate_blocked", 0)
+        processing_queued = listing_grouped.get("captured", 0)
+        processing_total = sum(listing_grouped.values())
+        processing_resolved = (
+            processing_successful + processing_failed + processing_duplicates
+        )
         return {
             "batch": dict(batch),
+            "stage_file": stage_file_metadata(batch_id),
             "import_summary": {
                 "rows": batch["total_rows"],
                 "valid_urls": batch["valid_urls"],
@@ -499,16 +712,14 @@ def replay_snapshot(batch_id: str | None = None) -> dict:
             },
             "progress": {
                 "total": total,
-                "processed": processed,
-                "attempted": sum(
-                    row["n"]
-                    for row in con.execute(
-                        """SELECT attempt_count,COUNT(*) AS n FROM capture_batch_items
-                           WHERE batch_id=? AND attempt_count>0 GROUP BY attempt_count""",
-                        (batch_id,),
-                    )
-                ),
-                "successful": successful,
+                "processed": resolved,
+                "resolved": resolved,
+                "attempted": con.execute(
+                    "SELECT COUNT(*) AS n FROM capture_batch_items WHERE batch_id=? AND attempt_count>0",
+                    (batch_id,),
+                ).fetchone()["n"],
+                "captured": captured,
+                "successful": captured,
                 "failed": failed,
                 "blocked": blocked,
                 "duplicates": grouped.get("duplicate", 0),
@@ -516,20 +727,43 @@ def replay_snapshot(batch_id: str | None = None) -> dict:
                 "remaining": remaining,
                 "by_status": grouped,
             },
+            "processing": {
+                # Informational only — this batch's contribution to the one shared
+                # processing queue (see batch.py READY_TO_PROCESS_SQL). Preprocessing
+                # is started/controlled from the unified batch processor, not per batch.
+                "total": processing_total,
+                "queued": processing_queued,
+                "active": processing_active,
+                "resolved": processing_resolved,
+                "successful": processing_successful,
+                "failed": processing_failed,
+                "duplicates": processing_duplicates,
+                "remaining": processing_queued + processing_active,
+                "by_status": listing_grouped,
+            },
             "current": dict(current) if current else None,
+            "recent_attempts": [dict(row) for row in attempts],
             "recent_failures": [dict(row) for row in failures],
         }
 
 
-def _finish_batch_if_possible(con, batch_id: str) -> None:
+def _finish_batch_if_possible(con, batch_id: str) -> bool:
+    """Return True if this call moved the batch into a terminal state.
+
+    Callers refresh the annotation dataset once, after their write
+    transaction commits, only when this returns True — replay runs many
+    items per batch, so per-item refreshes would be wasteful and are
+    intentionally skipped by the capture layer while a batch is active.
+    """
+
     batch = con.execute(
         "SELECT status FROM capture_batches WHERE batch_id=?", (batch_id,)
     ).fetchone()
     if not batch:
-        return
+        return False
     active = con.execute(
         """SELECT 1 FROM capture_batch_items
-           WHERE batch_id=? AND status IN ('opening','capturing','captured','processing') LIMIT 1""",
+           WHERE batch_id=? AND status IN ('opening','capturing') LIMIT 1""",
         (batch_id,),
     ).fetchone()
     if batch["status"] == "stopping" and not active:
@@ -544,10 +778,10 @@ def _finish_batch_if_possible(con, batch_id: str) -> None:
             "UPDATE capture_batches SET status='stopped',completed_at=?,updated_at=? WHERE batch_id=?",
             (completed_at, completed_at, batch_id),
         )
-        return
+        return True
     remaining = con.execute(
         """SELECT 1 FROM capture_batch_items
-           WHERE batch_id=? AND status IN ('pending','opening','capturing','captured','processing') LIMIT 1""",
+           WHERE batch_id=? AND status IN ('pending','opening','capturing') LIMIT 1""",
         (batch_id,),
     ).fetchone()
     if batch["status"] == "running" and not remaining:
@@ -556,18 +790,37 @@ def _finish_batch_if_possible(con, batch_id: str) -> None:
             "UPDATE capture_batches SET status='completed',completed_at=?,updated_at=? WHERE batch_id=?",
             (completed_at, completed_at, batch_id),
         )
+        return True
+    return False
 
 
 class ReplayManager:
-    """Persistent orchestration only; evidence and processing stay on the existing pipeline."""
+    """Durable URL-capture pass. Downstream work is owned by BatchManager."""
 
     def __init__(self) -> None:
-        self._stop = threading.Event()
-        self._wake = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._thread_lock = threading.Lock()
+        self._stage_cache: dict[
+            str, tuple[tuple[str, int, int], dict[str, dict[str, str]]]
+        ] = {}
+
+    def _stage_rows_for_capture(self, con, batch_id: str) -> dict[str, dict[str, str]]:
+        path = stage_file_path(batch_id)
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            raise RuntimeError(
+                "Stage 1 URL file is missing. Restart GuardianLens to restore it before capture."
+            ) from exc
+        signature = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+        cached = self._stage_cache.get(batch_id)
+        if cached and cached[0] == signature:
+            return cached[1]
+        rows = _read_stage_file(batch_id)
+        _verify_stage_rows(con, batch_id, rows)
+        self._stage_cache[batch_id] = (signature, rows)
+        return rows
 
     def recover(self) -> None:
+        self._stage_cache.clear()
         recovered_at = now_iso()
         with transaction() as con:
             interrupted = con.execute(
@@ -584,17 +837,14 @@ class ReplayManager:
                     recovered_at,
                 ):
                     continue
-                retry = item["attempt_count"] < item["max_attempts"]
-                target = "pending" if retry else "capture_failed"
                 con.execute(
                     """UPDATE capture_batch_items
-                       SET status=?,status_message='Recovered after interrupted browser capture',
+                       SET status='capture_failed',status_message='Interrupted browser capture; explicit retry required',
                            completed_at=?,updated_at=?,last_error_type='interrupted_capture',
                            last_error_message='Backend or browser stopped during capture',last_error_at=?
                        WHERE batch_item_id=?""",
                     (
-                        target,
-                        None if retry else recovered_at,
+                        recovered_at,
                         recovered_at,
                         recovered_at,
                         item["batch_item_id"],
@@ -607,33 +857,28 @@ class ReplayManager:
                        WHERE batch_item_id=? AND finished_at IS NULL""",
                     (recovered_at, item["batch_item_id"]),
                 )
-            processing = con.execute(
-                "SELECT batch_item_id,batch_id,listing_id FROM capture_batch_items WHERE status='processing'"
+            legacy_processed = con.execute(
+                """SELECT batch_item_id,batch_id,listing_id FROM capture_batch_items
+                   WHERE listing_id IS NOT NULL
+                     AND status IN ('processing','failed','ready_for_review','needs_attention',
+                                    'under_review','approved','rejected','skipped','flagged')"""
             ).fetchall()
-            for item in processing:
+            for item in legacy_processed:
                 listing = con.execute(
                     "SELECT status FROM listings WHERE listing_id=?", (item["listing_id"],)
                 ).fetchone()
-                if listing and listing["status"] in REVIEW_STATUSES:
-                    target = listing["status"]
-                elif listing and listing["status"] == "duplicate_blocked":
-                    target = "duplicate"
-                elif listing:
-                    target = "captured"
-                else:
-                    target = "capture_failed"
+                target = "captured" if listing else "capture_failed"
                 con.execute(
                     """UPDATE capture_batch_items SET status=?,status_message=?,updated_at=?,
-                           completed_at=CASE WHEN ?='capture_failed' THEN ? ELSE completed_at END,
+                           completed_at=COALESCE(completed_at,?),
                            last_error_type=CASE WHEN ?='capture_failed' THEN 'missing_listing' ELSE last_error_type END,
                            last_error_message=CASE WHEN ?='capture_failed' THEN 'Captured listing no longer exists' ELSE last_error_message END,
                            last_error_at=CASE WHEN ?='capture_failed' THEN ? ELSE last_error_at END
                        WHERE batch_item_id=?""",
                     (
                         target,
-                        "Recovered interrupted processing",
+                        "Recovered durable capture checkpoint",
                         recovered_at,
-                        target,
                         recovered_at,
                         target,
                         target,
@@ -646,28 +891,20 @@ class ReplayManager:
                 "SELECT batch_id FROM capture_batches WHERE status IN ('running','stopping')"
             ):
                 _finish_batch_if_possible(con, batch["batch_id"])
-        self._ensure_worker()
-
-    def _ensure_worker(self) -> None:
-        with self._thread_lock:
-            if self._thread and self._thread.is_alive():
-                return
-            self._stop.clear()
-            self._thread = threading.Thread(
-                target=self._run,
-                daemon=True,
-                name="guardianlens-replay-processing",
-            )
-            self._thread.start()
+        with closing(connect()) as con:
+            batch_ids = [
+                row["batch_id"]
+                for row in con.execute("SELECT batch_id FROM capture_batches ORDER BY created_at")
+            ]
+        for batch_id in batch_ids:
+            ensure_stage_file(batch_id)
 
     def shutdown(self) -> None:
-        self._stop.set()
-        self._wake.set()
-        if self._thread and self._thread is not threading.current_thread():
-            self._thread.join(timeout=2)
+        return None
 
     def start(self, batch_id: str) -> dict:
         with transaction() as con:
+            ensure_attention_idle(con)
             batch = con.execute(
                 "SELECT * FROM capture_batches WHERE batch_id=?", (batch_id,)
             ).fetchone()
@@ -675,6 +912,15 @@ class ReplayManager:
                 raise KeyError(batch_id)
             if batch["status"] != "draft":
                 raise RuntimeError(f"batch cannot start from {batch['status']}")
+            self._stage_rows_for_capture(con, batch_id)
+            seller_retry = con.execute(
+                """SELECT retry_batch_id FROM seller_retry_batches
+                   WHERE status IN ('running','paused','stopping') LIMIT 1"""
+            ).fetchone()
+            if seller_retry:
+                raise RuntimeError(
+                    "finish the paced seller-capture retry before starting URL capture"
+                )
             active = con.execute(
                 """SELECT batch_id FROM capture_batches
                    WHERE batch_id<>? AND status IN ('running','paused','stopping') LIMIT 1""",
@@ -682,6 +928,11 @@ class ReplayManager:
             ).fetchone()
             if active:
                 raise RuntimeError("another CSV replay batch is already active")
+            processor = con.execute(
+                "SELECT command FROM processor_control WHERE control_id=1"
+            ).fetchone()
+            if processor and processor["command"] in {"running", "paused", "stopping"}:
+                raise RuntimeError("finish the current processing run before starting URL capture")
             pending = con.execute(
                 "SELECT COUNT(*) AS n FROM capture_batch_items WHERE batch_id=? AND status='pending'",
                 (batch_id,),
@@ -695,8 +946,6 @@ class ReplayManager:
                    WHERE batch_id=?""",
                 (started_at, started_at, batch_id),
             )
-        self._ensure_worker()
-        self._wake.set()
         return replay_snapshot(batch_id)
 
     def command(self, batch_id: str, command: str) -> dict:
@@ -725,9 +974,9 @@ class ReplayManager:
                 "UPDATE capture_batches SET status=?,updated_at=? WHERE batch_id=?",
                 (target, now_iso(), batch_id),
             )
-            if target == "stopping":
-                _finish_batch_if_possible(con, batch_id)
-        self._wake.set()
+            finished_batch = target == "stopping" and _finish_batch_if_possible(con, batch_id)
+        if finished_batch:
+            refresh_annotation_dataset_safely("replay_batch_completed")
         return replay_snapshot(batch_id)
 
     def retry_failed(self, batch_id: str) -> dict:
@@ -737,13 +986,27 @@ class ReplayManager:
             ).fetchone()
             if not batch:
                 raise KeyError(batch_id)
-            if batch["status"] in _CONTROL_ACTIVE:
-                raise RuntimeError("pause or finish the batch before retrying failures")
+            if batch["status"] not in {"completed", "stopped"}:
+                raise RuntimeError("finish the capture pass before retrying failures")
+            self._stage_rows_for_capture(con, batch_id)
+            seller_retry = con.execute(
+                """SELECT retry_batch_id FROM seller_retry_batches
+                   WHERE status IN ('running','paused','stopping') LIMIT 1"""
+            ).fetchone()
+            if seller_retry:
+                raise RuntimeError(
+                    "finish the paced seller-capture retry before retrying URL capture failures"
+                )
+            processor = con.execute(
+                "SELECT command FROM processor_control WHERE control_id=1"
+            ).fetchone()
+            if processor and processor["command"] in {"running", "paused", "stopping"}:
+                raise RuntimeError("finish the current processing run before retrying capture failures")
             placeholders = ",".join("?" for _ in RETRYABLE_FAILURE_STATUSES)
             eligible = con.execute(
-                f"""SELECT batch_item_id,listing_id,attempt_count FROM capture_batch_items
+                f"""SELECT batch_item_id,attempt_count FROM capture_batch_items
                     WHERE batch_id=? AND status IN ({placeholders})
-                      AND (listing_id IS NOT NULL OR attempt_count<max(?,1))""",
+                      AND listing_id IS NULL AND attempt_count<max(?,1)""",
                 (batch_id, *RETRYABLE_FAILURE_STATUSES, batch["max_attempts"]),
             ).fetchall()
             if not eligible:
@@ -751,30 +1014,14 @@ class ReplayManager:
             retried_at = now_iso()
             retried_count = 0
             for row in eligible:
-                target = "pending"
-                message = "Queued for explicit browser retry"
-                if row["listing_id"]:
-                    listing = con.execute(
-                        "SELECT status FROM listings WHERE listing_id=?", (row["listing_id"],)
-                    ).fetchone()
-                    if listing and listing["status"] in {
-                        "captured", "ai_failed", "image_failed", "processing_failed"
-                    }:
-                        target = "captured"
-                        message = "Queued existing capture for pipeline retry"
-                    elif listing and listing["status"] == "duplicate_blocked":
-                        target = "duplicate"
-                        message = "Existing pipeline already marked this listing duplicate"
-                    elif row["attempt_count"] >= batch["max_attempts"]:
-                        continue
                 con.execute(
                     """UPDATE capture_batch_items
-                       SET status=?,status_message=?,completed_at=NULL,updated_at=?
+                       SET status='pending',status_message='Queued for explicit browser retry',
+                           completed_at=NULL,updated_at=?
                        WHERE batch_item_id=?""",
-                    (target, message, retried_at, row["batch_item_id"]),
+                    (retried_at, row["batch_item_id"]),
                 )
-                if target != "duplicate":
-                    retried_count += 1
+                retried_count += 1
             if not retried_count:
                 raise RuntimeError("no retryable failed URLs remain within the attempt limit")
             con.execute(
@@ -782,13 +1029,12 @@ class ReplayManager:
                    SET status='running',completed_at=NULL,updated_at=? WHERE batch_id=?""",
                 (retried_at, batch_id),
             )
-        self._ensure_worker()
-        self._wake.set()
         result = replay_snapshot(batch_id)
         result["retried"] = retried_count
         return result
 
     def claim_next(self) -> dict | None:
+        finished_batch = False
         with transaction() as con:
             batch = con.execute(
                 """SELECT * FROM capture_batches WHERE status='running'
@@ -796,6 +1042,7 @@ class ReplayManager:
             ).fetchone()
             if not batch:
                 return None
+            staged_rows = self._stage_rows_for_capture(con, batch["batch_id"])
             lease_seconds = settings.capture_page_timeout_seconds * 3 + 60
             stale_before = (datetime.now(timezone.utc) - timedelta(seconds=lease_seconds)).isoformat()
             stale = con.execute(
@@ -812,17 +1059,14 @@ class ReplayManager:
                     recovered_at,
                 ):
                     continue
-                retry = stale_item["attempt_count"] < batch["max_attempts"]
-                target = "pending" if retry else "capture_failed"
                 con.execute(
                     """UPDATE capture_batch_items
-                       SET status=?,status_message='Browser capture lease expired',completed_at=?,
+                       SET status='capture_timeout',status_message='Browser capture lease expired; explicit retry required',completed_at=?,
                            updated_at=?,last_error_type='capture_timeout',
                            last_error_message='Chrome stopped reporting this capture',last_error_at=?
                        WHERE batch_item_id=?""",
                     (
-                        target,
-                        None if retry else recovered_at,
+                        recovered_at,
                         recovered_at,
                         recovered_at,
                         stale_item["batch_item_id"],
@@ -837,11 +1081,26 @@ class ReplayManager:
                 )
             active = con.execute(
                 """SELECT 1 FROM capture_batch_items
-                   WHERE batch_id=? AND status IN ('opening','capturing','captured','processing') LIMIT 1""",
+                   WHERE batch_id=? AND status IN ('opening','capturing') LIMIT 1""",
                 (batch["batch_id"],),
             ).fetchone()
             if active:
                 return None
+            exhausted_at = now_iso()
+            con.execute(
+                """UPDATE capture_batch_items
+                   SET status='capture_failed',status_message='Capture attempt limit reached',
+                       completed_at=?,updated_at=?,last_error_type='attempt_limit',
+                       last_error_message='No automatic capture attempts remain',last_error_at=?
+                   WHERE batch_id=? AND status='pending' AND attempt_count>=?""",
+                (
+                    exhausted_at,
+                    exhausted_at,
+                    exhausted_at,
+                    batch["batch_id"],
+                    batch["max_attempts"],
+                ),
+            )
             while True:
                 item = con.execute(
                     """SELECT * FROM capture_batch_items
@@ -850,15 +1109,15 @@ class ReplayManager:
                     (batch["batch_id"], batch["max_attempts"]),
                 ).fetchone()
                 if not item:
-                    _finish_batch_if_possible(con, batch["batch_id"])
-                    return None
+                    finished_batch = _finish_batch_if_possible(con, batch["batch_id"])
+                    break
                 if _reconcile_owned_capture(
                     con,
                     item,
                     "Recovered listing evidence committed before queue acknowledgement",
                     now_iso(),
                 ):
-                    return None
+                    continue
                 try:
                     _normalized, _platform, marketplace_listing_id = validate_import_url(item["source_url"])
                 except ValueError:
@@ -906,12 +1165,21 @@ class ReplayManager:
                     "SELECT * FROM capture_batch_items WHERE batch_item_id=?",
                     (item["batch_item_id"],),
                 ).fetchone()
+                staged = staged_rows.get(item["batch_item_id"])
+                if not staged or staged["capture_ready"] != "yes":
+                    raise RuntimeError("The claimed URL is not capture-ready in the Stage 1 file.")
                 return {
                     **dict(claimed),
+                    "source_url": staged["source_url"],
+                    "platform": staged["platform"],
+                    "category": staged["category"] or None,
                     "batch_name": batch["name"],
                     "original_filename": batch["original_filename"],
                     "page_timeout_seconds": settings.capture_page_timeout_seconds,
                 }
+        if finished_batch:
+            refresh_annotation_dataset_safely("replay_batch_completed")
+        return None
 
     def update_item(
         self,
@@ -965,7 +1233,7 @@ class ReplayManager:
                     raise ValueError("listing does not belong to this replay batch")
             if not reconciled:
                 terminal = status != "capturing"
-                completed_at = updated_at if terminal and status != "captured" else None
+                completed_at = updated_at if terminal else None
                 con.execute(
                     """UPDATE capture_batch_items
                        SET status=?,status_message=?,listing_id=COALESCE(?,listing_id),completed_at=?,
@@ -1001,101 +1269,10 @@ class ReplayManager:
                         (batch_item_id,),
                     )
                 batch_id = item["batch_id"]
-                _finish_batch_if_possible(con, batch_id)
-        self._wake.set()
+            finished_batch = _finish_batch_if_possible(con, batch_id)
+        if finished_batch:
+            refresh_annotation_dataset_safely("replay_batch_completed")
         return replay_snapshot(batch_id)
-
-    def _next_captured(self) -> dict | None:
-        with transaction() as con:
-            item = con.execute(
-                """SELECT item.* FROM capture_batch_items item
-                   JOIN capture_batches batch ON batch.batch_id=item.batch_id
-                   WHERE item.status='captured' AND batch.status IN ('running','paused','stopping')
-                   ORDER BY item.updated_at,item.row_number LIMIT 1"""
-            ).fetchone()
-            if not item:
-                return None
-            con.execute(
-                """UPDATE capture_batch_items
-                   SET status='processing',status_message='Running existing GuardianLens pipeline',updated_at=?
-                   WHERE batch_item_id=? AND status='captured'""",
-                (now_iso(), item["batch_item_id"]),
-            )
-            con.execute(
-                """UPDATE capture_batch_attempts SET status='processing'
-                   WHERE batch_item_id=? AND finished_at IS NULL""",
-                (item["batch_item_id"],),
-            )
-            return dict(item)
-
-    def _process(self, item: dict) -> None:
-        try:
-            result = process_listing(item["listing_id"])
-            target = result["status"]
-            queue_status = "duplicate" if target == "duplicate_blocked" else target
-            finished_at = now_iso()
-            with transaction() as con:
-                con.execute(
-                    """UPDATE capture_batch_items
-                       SET status=?,status_message=?,completed_at=?,updated_at=?
-                       WHERE batch_item_id=?""",
-                    (
-                        queue_status,
-                        "Ready for human review" if queue_status in REVIEW_STATUSES else "Duplicate blocked by existing pipeline",
-                        finished_at,
-                        finished_at,
-                        item["batch_item_id"],
-                    ),
-                )
-                con.execute(
-                    """UPDATE capture_batch_attempts SET status=?,finished_at=?
-                       WHERE batch_item_id=? AND finished_at IS NULL""",
-                    (queue_status, finished_at, item["batch_item_id"]),
-                )
-                _finish_batch_if_possible(con, item["batch_id"])
-        except Exception as exc:
-            classification = classify_error(exc)
-            c = connect()
-            try:
-                listing = c.execute(
-                    "SELECT status FROM listings WHERE listing_id=?", (item["listing_id"],)
-                ).fetchone()
-            finally:
-                c.close()
-            error_kind = listing["status"] if listing else classification.kind
-            message = _clean_text(classification.user_message or str(exc), 2000) or "Processing failed"
-            finished_at = now_iso()
-            with transaction() as con:
-                con.execute(
-                    """UPDATE capture_batch_items
-                       SET status='failed',status_message='Existing GuardianLens pipeline failed',
-                           completed_at=?,updated_at=?,last_error_type=?,last_error_message=?,last_error_at=?
-                       WHERE batch_item_id=?""",
-                    (
-                        finished_at,
-                        finished_at,
-                        error_kind,
-                        message,
-                        finished_at,
-                        item["batch_item_id"],
-                    ),
-                )
-                con.execute(
-                    """UPDATE capture_batch_attempts
-                       SET status='failed',finished_at=?,error_type=?,error_message=?
-                       WHERE batch_item_id=? AND finished_at IS NULL""",
-                    (finished_at, error_kind, message, item["batch_item_id"]),
-                )
-                _finish_batch_if_possible(con, item["batch_id"])
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            item = self._next_captured()
-            if item:
-                self._process(item)
-                continue
-            self._wake.wait(0.5)
-            self._wake.clear()
 
     def status(self, batch_id: str | None = None) -> dict:
         return replay_snapshot(batch_id)

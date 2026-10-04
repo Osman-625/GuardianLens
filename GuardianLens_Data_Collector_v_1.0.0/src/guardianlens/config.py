@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
-AI_PROVIDERS = ("openai", "anthropic", "openrouter", "gemini")
+AI_PROVIDERS = ("openai", "anthropic", "omniroute", "gemini")
 RUN_MODES = ("production", "soft_test")
 SCREENSHOT_RETENTION_POLICIES = ("review_only", "retain_private", "delete_after_approval")
 
@@ -44,7 +44,7 @@ def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> 
 class Settings:
     root: Path = ROOT
     host: str = _env_text("HOST", "127.0.0.1")
-    port: int = _env_int("PORT", 8765, minimum=1, maximum=65535)
+    port: int = _env_int("PORT", 8770, minimum=1, maximum=65535)
     mode: str = _env_text("GUARDIANLENS_MODE", "production").lower()
     ai_provider: str = _env_text("AI_PROVIDER", "openai").lower()
     openai_api_key: str = _env_text("OPENAI_API_KEY", "")
@@ -53,9 +53,10 @@ class Settings:
     anthropic_api_key: str = _env_text("ANTHROPIC_API_KEY", "")
     anthropic_model: str = _env_text("ANTHROPIC_MODEL", "claude-opus-5")
     anthropic_prompt_version: str = _env_text("ANTHROPIC_PROMPT_VERSION", "collector_v1")
-    openrouter_api_key: str = _env_text("OPENROUTER_API_KEY", "")
-    openrouter_model: str = _env_text("OPENROUTER_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
-    openrouter_prompt_version: str = _env_text("OPENROUTER_PROMPT_VERSION", "collector_v1")
+    omniroute_api_key: str = _env_text("OMNIROUTE_API_KEY", "")
+    omniroute_base_url: str = _env_text("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1")
+    omniroute_model: str = _env_text("OMNIROUTE_MODEL", "gemini/gemini-3.5-flash-lite")
+    omniroute_prompt_version: str = _env_text("OMNIROUTE_PROMPT_VERSION", "collector_v1")
     gemini_api_key: str = _env_text("GEMINI_API_KEY", "")
     gemini_model: str = _env_text("GEMINI_MODEL", "gemini-3.6-flash")
     gemini_prompt_version: str = _env_text("GEMINI_PROMPT_VERSION", "collector_v1")
@@ -149,18 +150,18 @@ def set_active_provider(provider: str) -> None:
         temporary.unlink(missing_ok=True)
 
 def provider_model(provider: str) -> str:
-    return {"openai": settings.openai_model, "anthropic": settings.anthropic_model, "openrouter": settings.openrouter_model, "gemini": settings.gemini_model}[provider]
+    return {"openai": settings.openai_model, "anthropic": settings.anthropic_model, "omniroute": settings.omniroute_model, "gemini": settings.gemini_model}[provider]
 
 def provider_prompt_version(provider: str) -> str:
     return {
         "openai": settings.openai_prompt_version,
         "anthropic": settings.anthropic_prompt_version,
-        "openrouter": settings.openrouter_prompt_version,
+        "omniroute": settings.omniroute_prompt_version,
         "gemini": settings.gemini_prompt_version,
     }[provider]
 
 def provider_configured(provider: str) -> bool:
-    return bool({"openai": settings.openai_api_key, "anthropic": settings.anthropic_api_key, "openrouter": settings.openrouter_api_key, "gemini": settings.gemini_api_key}[provider])
+    return bool({"openai": settings.openai_api_key, "anthropic": settings.anthropic_api_key, "omniroute": settings.omniroute_api_key, "gemini": settings.gemini_api_key}[provider])
 
 def provider_client_options() -> dict[str, int | float]:
     """Disable SDK retries so GuardianLens owns one bounded, auditable retry policy."""

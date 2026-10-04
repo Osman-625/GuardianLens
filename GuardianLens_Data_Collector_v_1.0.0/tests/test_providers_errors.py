@@ -95,19 +95,19 @@ def test_all_provider_adapters_share_normalized_schema_and_sdk_options(tmp_path,
 
     from guardianlens.openai_extractor import OpenAIExtractor
     from guardianlens.anthropic_extractor import AnthropicExtractor
-    from guardianlens.openrouter_extractor import OpenRouterExtractor
+    from guardianlens.omniroute_extractor import OmniRouteExtractor
     from guardianlens.gemini_extractor import GeminiExtractor
 
     with (
         setting("openai_api_key", "fixture"),
         setting("anthropic_api_key", "fixture"),
-        setting("openrouter_api_key", "fixture"),
+        setting("omniroute_api_key", "fixture"),
         setting("gemini_api_key", "fixture"),
     ):
         outputs = [
             OpenAIExtractor().extract(screenshot, "carousell", None, []),
             AnthropicExtractor().extract(screenshot, "carousell", None, []),
-            OpenRouterExtractor().extract(screenshot, "carousell", None, []),
+            OmniRouteExtractor().extract(screenshot, "carousell", None, []),
             GeminiExtractor().extract(screenshot, "carousell", None, []),
         ]
 
@@ -151,19 +151,19 @@ def test_extractors_include_listing_source_url_in_prompt(tmp_path, monkeypatch):
 
     from guardianlens.openai_extractor import OpenAIExtractor
     from guardianlens.anthropic_extractor import AnthropicExtractor
-    from guardianlens.openrouter_extractor import OpenRouterExtractor
+    from guardianlens.omniroute_extractor import OmniRouteExtractor
     from guardianlens.gemini_extractor import GeminiExtractor
 
     url = "https://www.carousell.com.my/p/apple-iphone-13-pro-max-256gb-1234567890/"
     with (
         setting("openai_api_key", "fixture"),
         setting("anthropic_api_key", "fixture"),
-        setting("openrouter_api_key", "fixture"),
+        setting("omniroute_api_key", "fixture"),
         setting("gemini_api_key", "fixture"),
     ):
         OpenAIExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
         AnthropicExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
-        OpenRouterExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
+        OmniRouteExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
         GeminiExtractor().extract(screenshot, "carousell", "iPhone", [], source_url=url)
 
     assert url in calls["responses"][0]["input"][0]["content"][0]["text"]
@@ -196,14 +196,14 @@ def test_extractor_prompt_omits_url_line_when_source_url_not_given(tmp_path, mon
     assert "Listing URL: \n" in captured["input"][0]["content"][0]["text"]
 
 
-@pytest.mark.parametrize("provider", ["openai", "anthropic", "openrouter", "gemini"])
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "omniroute", "gemini"])
 def test_active_provider_controls_default_factory(provider, monkeypatch):
     import guardianlens.processor as processor
     module = __import__(f"guardianlens.{provider}_extractor", fromlist=["*"])
     class_name = {
         "openai": "OpenAIExtractor",
         "anthropic": "AnthropicExtractor",
-        "openrouter": "OpenRouterExtractor",
+        "omniroute": "OmniRouteExtractor",
         "gemini": "GeminiExtractor",
     }[provider]
     sentinel = object()
@@ -221,3 +221,42 @@ def test_missing_unused_provider_sdk_does_not_affect_selected_provider(monkeypat
     monkeypatch.setattr(openai_module, "OpenAIExtractor", lambda: sentinel)
     monkeypatch.delitem(sys.modules, "anthropic", raising=False)
     assert processor.default_extractor() is sentinel
+
+
+def test_omniroute_gateway_routes_extraction_and_catalog_to_same_endpoint(tmp_path, monkeypatch):
+    import httpx
+    import openai
+    OpenAI = openai.OpenAI
+    from guardianlens.omniroute_extractor import OmniRouteExtractor
+    from guardianlens.provider_info import omniroute_models
+
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": "gemini/fixture"}]})
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"title":"Fixture"}'}}],
+        })
+
+    def client(**kwargs):
+        return OpenAI(**kwargs, http_client=httpx.Client(transport=httpx.MockTransport(respond)))
+
+    monkeypatch.setattr(openai, "OpenAI", client)
+    screenshot = tmp_path / "listing.jpg"
+    screenshot.write_bytes(b"fixture")
+    with (
+        setting("omniroute_api_key", "gateway-fixture-key"),
+        setting("omniroute_base_url", "http://127.0.0.1:20128/v1"),
+        setting("omniroute_model", "gemini/fixture"),
+    ):
+        assert OmniRouteExtractor().extract(screenshot, "carousell", None, [])["title"] == "Fixture"
+        assert omniroute_models() == ["gemini/fixture"]
+
+    assert [str(r.url) for r in requests] == [
+        "http://127.0.0.1:20128/v1/chat/completions",
+        "http://127.0.0.1:20128/v1/models",
+    ]
+    assert all(r.headers["authorization"] == "Bearer gateway-fixture-key" for r in requests)
+    assert json.loads(requests[0].content)["model"] == "gemini/fixture"

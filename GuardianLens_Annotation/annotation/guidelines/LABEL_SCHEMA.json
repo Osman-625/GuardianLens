@@ -1,0 +1,137 @@
+{
+  "schema_version": "2026-09-23-v4",
+  "labels": ["legitimate", "suspicious", "scam_fraud", "insufficient_evidence"],
+
+  "signal_taxonomy": {
+    "_note": "Machine-readable summary of the taxonomy. Full prose, examples, and non-examples live in DECISION_RULES.md -- this block is the canonical enum/reference other docs and scripts should point at, not a substitute for reading DECISION_RULES.md.",
+    "tiers": ["weak", "strong", "critical"],
+    "weak": {
+      "definition": "A common, independently-explainable attribute that a substantial share of genuine listings/sellers also exhibit. Cannot by itself distinguish fraud from normal marketplace variation.",
+      "alone_supports_at_most": "legitimate (noted) or insufficient_evidence -- never suspicious or scam_fraud by itself, regardless of how many weak signals stack, unless a strong or critical signal is also present.",
+      "canonical_examples": [
+        "low price vs. category median, no explanation given",
+        "new seller / short account_age_days",
+        "missing or zero seller_rating",
+        "low review_count",
+        "missing location_city / location_state",
+        "unusual or grammatically rough wording",
+        "unusual-but-plausible condition claim",
+        "generic/templated seller description",
+        "reused_image_indicator=true that has NOT yet been manually verified"
+      ]
+    },
+    "strong": {
+      "definition": "A specific, checkable anomaly that most genuine sellers would not exhibit, with a plausible-but-uncommon innocent explanation. Sufficient alone for suspicious (never for scam_fraud alone).",
+      "alone_supports_at_most": "suspicious, confidence 3-4.",
+      "escalates_to_scam_fraud_when": "corroborated by at least one additional independent signal (weak or strong), OR two independent strong signals are both confirmed.",
+      "canonical_examples": [
+        "a SINGLE confirmed reused image -- reused_image_indicator=true manually verified by opening the other listing(s) and visually confirming the same photo used for a different 'unique' item",
+        "urgency-pressure language with no other flag",
+        "described condition that visibly contradicts the photos",
+        "a request to move off the platform's own messaging/escrow that is paired with pressure, exclusivity, or urgency (e.g. 'DM only, do not use platform chat', 'must confirm via WhatsApp right now or I sell to someone else')",
+        "one image within the listing's own photo set that shows a completely different, unrelated, unadvertised item (not merely a condition mismatch on the advertised item)"
+      ],
+      "non_examples": [
+        "a seller sharing a WhatsApp/Telegram/phone contact SOLELY to arrange meetup logistics (pickup time/place) or answer questions, with no pressure/urgency/exclusivity attached -- universal, expected practice on Carousell/Mudah, not a signal at all (added v3, after pilot v1 found this was the single largest source of annotator disagreement)",
+        "an OS/device system-info screenshot (e.g. Windows Settings > System > About) reporting a lower RAM/memory transfer speed than the listing's advertised marketing spec (e.g. '6400 MT/s' shown vs '8533 MT/s' advertised) when the device name, processor model, and storage capacity in the same screenshot all otherwise match the listing exactly -- a known OS reporting artifact for LPDDR5X/DDR5 modules, not evidence of a different/misrepresented device unless the other identifying fields also fail to match (added v4, after pilot v2's severe-disagreement review)"
+      ]
+    },
+    "critical": {
+      "definition": "A specific, checkable act or content with essentially no plausible innocent marketplace explanation -- it maps directly onto a known scam mechanism, not merely a suspicious pattern.",
+      "alone_supports": "scam_fraud, confidence 4-5. No corroboration required.",
+      "canonical_examples": [
+        "explicit request for OTP / TAC / PIN / CVV / bank login credentials",
+        "explicit instruction to pay a deposit/booking/agent fee via personal transfer before any handover or escrow, stated in the listing's own text",
+        "confirmed reused images spanning THREE OR MORE unrelated listings for different 'unique' items (not just one other match -- that is strong, see above)",
+        "an independently, manually-verified hit against a rule-engine critical finding (e.g. a Semak Mule match) -- note: this data source is currently disabled/NULL project-wide per rules/rule_documentation.md, so unavailable in practice as of this schema version"
+      ]
+    }
+  },
+
+  "scam_fraud_boundary_rule": {
+    "_note": "Resolves the single most common miscalibration risk: treating a reused image, or any one strong signal, as automatic scam_fraud. See DECISION_RULES.md 'Scam/Fraud Boundary' for worked reasoning.",
+    "rules": [
+      "Any number of WEAK signals alone, with no strong or critical signal present, is capped at suspicious. It is never scam_fraud, no matter how many weak signals stack.",
+      "One confirmed STRONG signal alone is suspicious, not scam_fraud.",
+      "One confirmed STRONG signal plus at least one additional independent signal (weak or strong) is scam_fraud.",
+      "Two independently confirmed STRONG signals, even without any weak corroboration, is scam_fraud.",
+      "One confirmed CRITICAL signal alone is scam_fraud -- no corroboration required.",
+      "Established seller reputation/history (rating, review_count, account_age_days, active_listing_count) never downgrades the label a confirmed strong or critical signal already sets -- it is behavioural-channel evidence, not an override. It may be cited in reason and may trim confidence within the tier's range, but the label floor stands regardless of how established the seller looks (added v3)."
+    ]
+  },
+
+  "evidence_sufficiency_gate": {
+    "_note": "Applies before labeling legitimate. See DECISION_RULES.md 'Evidence Sufficiency Gate' for worked reasoning.",
+    "evidence_channels": ["text", "image", "behavioral"],
+    "rule": "legitimate requires that at least TWO of the three evidence channels (text, image, behavioral) have real, checkable content -- not merely be absent. If two or more channels are empty/NULL/uninformative (e.g. image_count=0 AND all four seller-behaviour fields NULL), the absence of a red flag is not evidence of legitimacy -- use insufficient_evidence instead, even when nothing suspicious was found.",
+    "channel_has_content_means": {
+      "text": "title + description together contain at least one specific, checkable detail beyond a generic one-line listing (condition detail, specific feature, disclosed reason for price/sale, etc.)",
+      "image": "image_count >= 1 AND the image(s) were actually opened and show the item itself (not just a placeholder/manufacturer-only shot with nothing else to assess)",
+      "behavioral": "at least one of account_age_days / seller_rating / review_count / active_listing_count is non-NULL (a genuine disclosed zero counts as content; NULL does not)"
+    }
+  },
+
+  "conflict_policy": {
+    "_note": "Applies whenever signals point in different directions. See DECISION_RULES.md 'Conflict Policy' for worked reasoning.",
+    "rules": [
+      "If ANY strong or critical signal is present, the label cannot be legitimate, even if other evidence looks clean -- the floor is suspicious.",
+      "If only weak signals conflict with an otherwise-clean profile, resolve per the evidence sufficiency gate and the weak-signal rule above (legitimate or insufficient_evidence, never suspicious/scam_fraud from weak signals alone).",
+      "If evidence is missing or ambiguous on both sides such that neither a positive nor a negative case can be made, use insufficient_evidence -- never resolve a genuine standoff by picking whichever label feels less alarming.",
+      "Always document both the supporting and the conflicting evidence in the reason/evidence fields, regardless of which label you land on.",
+      "Confidence must reflect the conflict: never record confidence 4-5 when the reason field itself documents contradicting evidence."
+    ]
+  },
+
+  "confidence_scale": {
+    "type": "int",
+    "range": [1, 5],
+    "anchors": {
+      "1": "Mostly guessing. Evidence is thin, ambiguous, or nearly balanced between two labels; would not be surprised to be told this call was wrong.",
+      "2": "Leaning toward this label but real doubt remains; at least one plausible alternative label has not been fully ruled out.",
+      "3": "Reasonably confident. The primary evidence is specific and clear-cut, but either it is a single signal with no corroboration, or a minor ambiguity remains. Typical for a single confirmed strong signal (suspicious) or a legitimate/insufficient_evidence call resting on ordinary review.",
+      "4": "Confident. Multiple independent, specific signals align (e.g. strong+weak reaching scam_fraud), or one clearly confirmed critical signal, with no significant counter-evidence.",
+      "5": "Very confident. Evidence is unambiguous and directly observed (not inferred), with no credible alternative explanation identified. Reserved for e.g. a confirmed critical signal with no conflicting evidence at all, or a legitimate call where a disclosed explanation (e.g. stated reason for a low price) is independently corroborated by the rest of the listing."
+    },
+    "note": "Confidence is not a separate free judgment -- it must be consistent with the signal tier and corroboration level that produced the label. See signal_taxonomy and conflict_policy above."
+  },
+
+  "rule_engine_label_mapping": {
+    "_note": "The rule engine (scripts/rule_engine/evaluator.py) uses its own deliberately-hedged vocabulary, not this canonical set, and its own internal notion of 'critical'/'strong' rule strength (see rules/rule_documentation.md) is a SEPARATE classification from signal_taxonomy above -- the rule engine's rule-strength labels are not renamed or reinterpreted by this schema. This mapping exists so consensus code never does a naive string comparison between rule_label and claude_label/codex_label. The rule engine's YAML/Python source is unchanged by this task -- this mapping is read-only documentation of an existing divergence, not a request to rename anything in scripts/rule_engine/.",
+    "likely_legitimate": "legitimate",
+    "likely_scam": "scam_fraud",
+    "suspicious": "suspicious",
+    "insufficient_evidence": "insufficient_evidence"
+  },
+
+  "pilot_output_columns": [
+    "listing_id",
+    "label",
+    "confidence",
+    "reason",
+    "evidence_text",
+    "evidence_image",
+    "evidence_behavioral",
+    "insufficient_evidence_reason",
+    "annotator",
+    "annotator_version",
+    "timestamp"
+  ],
+  "pilot_output_columns_note": "This is the column shape for annotation/pilot/claude_pilot.csv and codex_pilot.csv (and the later full-run equivalents in annotation/runs/full_v1/), per this task's spec section 5. It is distinct from the older annotation/annotation_schema.json shape (single evidence_reason field + boolean suspicious_text/suspicious_image/suspicious_seller_behaviour flags), which remains valid and unchanged for anything still using that schema directly (e.g. the archived dual-human templates, verify_annotations.py's default schema check). Both schemas share this file's confidence_scale, signal_taxonomy, scam_fraud_boundary_rule, evidence_sufficiency_gate, and conflict_policy -- they differ only in column layout, not in the underlying decision rules.",
+
+  "label_definitions_doc": "ANNOTATION_GUIDE.md",
+  "decision_rules_doc": "DECISION_RULES.md",
+  "evidence_rules_doc": "EVIDENCE_RULES.md",
+
+  "kappa_gate": {
+    "pass": ">= 0.61",
+    "review_and_repilot": "0.40 - 0.60",
+    "stop_and_escalate": "< 0.40",
+    "source": "annotation/pilot/README.md (recovered original), cross-confirmed against PROGRESS_REPORT_AND_PLAN.md"
+  },
+
+  "version_history": {
+    "2026-09-17-v2": "original guide used for annotation/pilot/ (pilot v1). Result: kappa=0.393 vs Codex, 5 severe legitimate/scam_fraud disagreements -- failed the stop_and_escalate (<0.40) gate.",
+    "2026-09-21-v3": "revised after diagnosing the 5 severe pilot-v1 disagreements. See DECISION_RULES.md 'Version history' for full detail: (1) clarified that ordinary meetup-logistics contact-sharing is not a signal, only pressure/urgency/exclusivity attached to an off-platform request is; (2) added scam_fraud_boundary_rule that seller reputation never downgrades a confirmed strong/critical signal's label; (3) added an unrelated-item-photo strong-signal example. Re-pilot writes to annotation/runs/pilot_v2/, not annotation/pilot/.",
+    "2026-09-23-v4": "revised after diagnosing pilot v2's result: kappa=0.496 vs Codex (up from v1's 0.393), 3 severe legitimate/scam_fraud disagreements, all individually human-adjudicated (see annotation/review/pilot_v2_severe_disagreement_adjudication.csv). 2 of 3 traced to an annotator not opening every image in a 9-12 image set and missing a single unrelated-item photo -- ANNOTATION_GUIDE.md's image-review instruction was strengthened to make this mandatory, not a taxonomy change. The 3rd was a genuine gap: added a non-example that an OS-reported RAM speed below the advertised spec is a reporting artifact, not a signal, when other identifiers match. No further re-pilot run given timeline; guidelines frozen at v4 for the full-dataset run."
+  }
+}

@@ -4,6 +4,12 @@ Manual marketplace listing capture, CSV URL batch replay, AI-assisted field extr
 
 This package implements **data collection only**. It intentionally does not contain fraud labels, train/validation/test splitting, model training, fraud scoring, calibrated AI confidence, or an unattended marketplace crawler.
 
+Dashboard totals come from stored collection state and refresh automatically. Expand the
+sections for detailed counts, capture logs, review history, provider settings, and local
+tools. Expansion choices persist for the browser tab; a disconnected update is clearly
+marked while the last stored snapshot remains visible. See the
+[workspace cleanup report](docs/WORKSPACE_CLEANUP.md) for the repository map and verification.
+
 ## 1. Core rule
 
 The collection boundary is deliberate. Manual and CSV modes converge at the existing capture request:
@@ -11,18 +17,18 @@ The collection boundary is deliberate. Manual and CSV modes converge at the exis
 ```text
          MANUAL MODE                         CSV REPLAY MODE
 YOU choose and open a listing          YOU upload/paste listing URLs
-YOU click Capture Current Listing      GuardianLens opens only the queued URL
-YOU capture seller behaviour           GuardianLens replays the same capture operation
+YOU click Capture Current Listing      Stage 1 writes a viewable validated URL CSV
+YOU capture seller behaviour           Stage 2 captures only rows from that file
                  \                         /
                   SAME CaptureRequest boundary
                               ↓
-local staging
-        ↓
-batch processor
+captured staging + durable checkpoints (no preprocessing during capture)
+                              ↓
+Stage 3 batch processor: default maximum 50 records / 60 minutes
         ↓
 AI extraction: page text is the PRIMARY source (listing text -> product fields, seller text ->
 account_age_days/seller_rating/review_count/active_listing_count); the screenshots are SECONDARY
-proof only, never a data source (OpenAI, Anthropic, OpenRouter, or Gemini — set by AI_PROVIDER)
+proof only, never a data source (OpenAI, Anthropic, OmniRoute, or Gemini — set by AI_PROVIDER)
         ↓
 PII scrub + validation + duplicate/image checks
         ↓
@@ -39,13 +45,17 @@ The extension never searches marketplaces, follows pagination, discovers listing
 
 ## 2. Dataset target
 
-Production target:
+Collection is complete. Final approved dataset:
 
-- Total approved listings: **2,500**
-- Carousell Malaysia: **1,500 (60%)**
-- Mudah.my: **1,000 (40%)**
+- Total approved listings: **2,209**
+- Carousell Malaysia: **1,410 (64%)**
+- Mudah.my: **799 (36%)**
 - Only `approved` records count.
-- Captured, processing, waiting-for-review, skipped, flagged, rejected, and failed records do not count toward 2,500.
+- Captured, processing, waiting-for-review, skipped, flagged, rejected, and failed records do not count toward the total.
+
+The collector's original plan targeted 2,500 (1,500/1,000); that plan was scoped down once
+collection stabilized at the counts above, which are now the project's final dataset size —
+there is no further collection planned against a larger number.
 
 Category targets are configurable in `config/categories.yaml`.
 
@@ -61,7 +71,7 @@ GuardianLens_Data_Collector_v_1.0.0/
 ├── run.bat                        # Windows production run
 ├── config/
 │   ├── categories.yaml            # configurable category mix
-│   └── platform_targets.yaml      # 2500 / 1500 / 1000 targets
+│   └── platform_targets.yaml      # final dataset targets (2,209 / 1,410 / 799)
 ├── extension/
 │   ├── manifest.json              # Chrome Manifest V3
 │   ├── background.js              # shared manual + queued-browser capture
@@ -78,7 +88,7 @@ GuardianLens_Data_Collector_v_1.0.0/
 │   ├── states.py                  # listing state machine
 │   ├── openai_extractor.py        # OpenAI screenshot extraction adapter
 │   ├── anthropic_extractor.py     # Anthropic screenshot extraction adapter
-│   ├── openrouter_extractor.py    # OpenRouter (free vision models) adapter
+│   ├── omniroute_extractor.py    # OmniRoute local gateway adapter
 │   ├── gemini_extractor.py        # Gemini screenshot extraction adapter
 │   ├── extraction_contract.py     # shared schema/prompt rules for all providers
 │   ├── provider_info.py           # per-provider model listing
@@ -93,6 +103,7 @@ GuardianLens_Data_Collector_v_1.0.0/
 │   ├── processor.py               # post-capture processing pipeline
 │   ├── review.py                  # human edit/actions + atomic approval
 │   ├── exports.py                 # approved-only export
+│   ├── annotation_dataset.py      # atomic annotation-handoff CSV views
 │   ├── audit.py                   # security/data-integrity audit
 │   ├── templates/                 # local dashboard and review UI
 │   └── static/
@@ -102,15 +113,19 @@ GuardianLens_Data_Collector_v_1.0.0/
 │   ├── run_tests.py
 │   ├── run_soft_test_server.py
 │   ├── reset_soft_test.py
+│   ├── soft_test_csv_pipeline.py      # persistent isolated 5+5 staged-pipeline check
 │   ├── mock_integration_check.py
 │   ├── security_audit.py
 │   ├── data_integrity_audit.py
 │   ├── export_approved.py
+│   ├── verify_approved_live.py        # verify approved records against live marketplace pages
+│   ├── refresh_annotation_dataset.py
 │   ├── manifest.py
 │   ├── build_release_zip.py
 │   └── verify_fresh_release.py
 ├── data/
 │   ├── private/
+│   │   ├── replay_batches/           # viewable Stage 1 URL files, one per batch
 │   │   ├── screenshots/           # temporary/private evidence
 │   │   └── staging/               # private staged capture info
 │   ├── images/
@@ -127,6 +142,19 @@ GuardianLens_Data_Collector_v_1.0.0/
 
 Empty runtime folders contain `.gitkeep` so the structure survives ZIP extraction and Git.
 
+Every CSV upload and manual URL import creates:
+
+```text
+data/private/replay_batches/<batch_id>/stage_1_urls.csv
+```
+
+The dashboard provides **Open CSV** and **Download CSV** controls. This UTF-8 CSV contains
+the normalized URL, detected platform, optional category, source row, validation outcome,
+capture-ready flag, and durable queue item ID. Treat it as view-only: the collector verifies
+it against SQLite before capture and refuses to proceed if it was edited. Existing batches
+receive this file automatically when GuardianLens starts. In soft-test mode, the same artifact
+is isolated under `data/soft_test/runtime/private/replay_batches/`.
+
 ---
 
 # 4. Required software
@@ -137,7 +165,7 @@ Recommended Windows setup:
 2. Miniconda or Anaconda
 3. Google Chrome
 4. Internet connection for AI processing and remote product-image download
-5. An API key for at least one of: OpenAI, Anthropic, OpenRouter, Gemini. Pick the active one with `AI_PROVIDER` in `.env`; you can also switch it live from the dashboard.
+5. An API key for at least one of: OpenAI, Anthropic, OmniRoute, Gemini. Pick the active one with `AI_PROVIDER` in `.env`; you can also switch it live from the dashboard.
 6. Node.js is optional. It is used only by `scripts/self_test.py` to syntax-check extension JavaScript if installed.
 
 Python is installed inside the Conda environment. You do not need to depend on your global Python installation.
@@ -199,7 +227,7 @@ OPENAI_API_KEY=your_real_key_here
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_PROMPT_VERSION=collector_v1
 HOST=127.0.0.1
-PORT=8765
+PORT=8770
 OPERATOR_TIMEZONE=Asia/Kuala_Lumpur
 SCREENSHOT_RETENTION=review_only
 MAX_PRODUCT_IMAGES=12
@@ -231,6 +259,30 @@ Rules:
 Every provider model and prompt version is configurable, so the collector is not tied to
 one provider or model name.
 
+### Use OmniRoute
+
+Install [OmniRoute](https://github.com/diegosouzapw/OmniRoute), connect an upstream
+provider, and set these values in `.env`:
+
+```env
+AI_PROVIDER=omniroute
+OMNIROUTE_BASE_URL=http://127.0.0.1:20128/v1
+OMNIROUTE_API_KEY=your_omniroute_endpoint_key
+OMNIROUTE_MODEL=gemini/gemini-3.5-flash-lite
+```
+
+The model is an example: use the exact image-capable model ID available in your
+OmniRoute dashboard. Connect its upstream provider in OmniRoute first. The endpoint
+key belongs to OmniRoute; the upstream provider key stays in OmniRoute. Restart the
+collector and select OmniRoute if a saved dashboard provider override is active.
+The model-list button reads the configured gateway's catalog; custom catalogs are
+not filtered for free pricing or image support. Provider quotas and charges still
+apply. Begin with a small verified extraction before starting a batch.
+
+`OMNIROUTE_BASE_URL` defaults to `http://127.0.0.1:20128/v1`.
+The OpenAI, Anthropic, and Gemini adapters keep their existing
+configuration. Reprocessing cannot supply seller evidence absent from the capture.
+
 ---
 
 # 7. Run the production collector
@@ -253,27 +305,27 @@ python main.py
 Then open:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8770
 ```
 
 Health endpoint:
 
 ```text
-http://127.0.0.1:8765/health
+http://127.0.0.1:8770/health
 ```
 
 The dashboard shows:
 
-- approved total / 2,500
-- Carousell / 1,500
-- Mudah / 1,000
+- approved total / 2,209 (final target)
+- Carousell / 1,410
+- Mudah / 799
 - exact counts for every lifecycle/failure state
 - pending/processing/attention and review queues with safe failure reasons
 - searchable, paginated **All Records** history (including rejected, skipped, failed, and duplicates)
 - category coverage
 - collection recommendations
 - CSV upload and pasted-URL import summaries
-- persistent replay progress, current URL, controls, and recent failures
+- two-stage replay progress, current URL, durable capture log, popup monitor, and explicit retries
 - batch controls
 - local extension token
 - review timing in `OPERATOR_TIMEZONE`
@@ -297,13 +349,13 @@ GuardianLens_Data_Collector_v_1.0.0\extension
 ```
 
 7. Pin **GuardianLens Data Collection** to the toolbar.
-8. Open `http://127.0.0.1:8765`.
+8. Open `http://127.0.0.1:8770`.
 9. Copy the **Chrome extension token** shown on the dashboard.
 10. Click the GuardianLens extension.
 11. Keep the server URL as:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8770
 ```
 
 12. Paste the local token.
@@ -341,22 +393,24 @@ mudah,Cameras,https://www.mudah.my/example-654321.htm
 Import validates readable text, a supported URL header, HTTP/HTTPS URLs, exact supported hosts, blank rows, malformed rows, duplicates inside the import, and existing GuardianLens source duplicates. Nothing invalid is silently discarded. Review the summary, then use:
 
 ```text
-Start · Pause · Resume · Stop · Retry Failed
+Start capture pass · Pause · Resume · Stop · Retry capture failures
+Process next 50 · 1 hour
 ```
 
-The queue is stored in SQLite. Refreshes and normal backend/browser restarts retain it. Pause checkpoints the current URL before taking another. Stop retains completed records and marks untouched rows as skipped. Failed URLs are isolated and can be retried explicitly up to `MAX_CAPTURE_ATTEMPTS`; permanent unavailable-listing failures are not retried forever.
+Both queues and their logs are stored in SQLite. Refreshes and normal backend/browser restarts retain them. Completed capture checkpoints are never repeated. An interrupted uncommitted capture becomes a visible failure; untouched pending URLs continue, and any retry is explicit only after the pass finishes. Processing failures likewise remain stopped until the current processing run finishes and an operator requeues them.
 
-Chrome must remain open with the extension configured. The extension checks the local queue automatically (or click **Check CSV Queue Now**), opens one supplied URL at a time in a dedicated browser window, detects login/CAPTCHA/access-denied/unavailable pages without bypassing them, and submits successful evidence to the same `/api/capture` endpoint used by manual capture.
+Chrome must remain open with the extension configured during stage 1. The extension checks the local queue automatically (or click **Check queue**), opens one supplied URL at a time in a dedicated browser window, detects login/CAPTCHA/access-denied/unavailable pages without bypassing them, and submits successful evidence to the same `/api/capture` endpoint used by manual capture. Its popup monitors both stages and can start the scoped 50-record/60-minute processing run after capture completes.
 
 Quick run:
 
-1. Start GuardianLens with `.\run.bat` and confirm `http://127.0.0.1:8765` loads.
+1. Start GuardianLens with `.\run.bat` and confirm `http://127.0.0.1:8770` loads.
 2. Load/configure the unpacked Chrome extension and save the dashboard token.
 3. In **Data collection**, choose one CSV or paste one URL per line; do not provide both.
-4. Click **Import URLs** and inspect every import-summary count.
-5. Click **Start** and keep Chrome open while the queue runs.
-6. Use **Pause**, **Resume**, **Stop**, or **Retry Failed** when needed.
-7. Review and correct successful records in the existing **Review Queue**.
+4. Click **Import CSV** or **Import pasted URLs** and inspect every import-summary count.
+5. Click **Start capture pass** and keep Chrome open until every row has a checkpoint.
+6. After capture completes, click **Process next 50 · 1 hour**; repeat while records remain queued.
+7. Retry capture or processing failures only after the corresponding pass/run has finished.
+8. Review and correct successful records in the existing **Review Queue**.
 
 # 9. What the extension actually captures
 
@@ -398,12 +452,13 @@ The soft test uses a separate database **and** a separate runtime asset tree:
 
 ```text
 data/soft_test/collector_soft_test.sqlite3
+data/soft_test/runtime/private/replay_batches/
 data/soft_test/runtime/private/screenshots/
 data/soft_test/runtime/images/
 data/soft_test/runtime/exports/
 ```
 
-It does not count toward the production 2,500 and its screenshots/images do not enter the production asset folders.
+It does not count toward the production dataset total and its screenshots/images do not enter the production asset folders.
 
 ## Start soft-test mode
 
@@ -417,10 +472,10 @@ python scripts/run_soft_test_server.py
 The dashboard still uses:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8770
 ```
 
-## Validate both input modes with four real trial listings
+## Validate both input modes with a controlled real trial
 
 First validate the original manual path:
 
@@ -435,10 +490,12 @@ manually open listing
 → verify it appears as captured
 ```
 
-Then create a two-row CSV containing a different individual Carousell listing and Mudah
-listing. Import it under **Data collection**, verify the summary, click **Start**, and keep
-Chrome open until both rows have been attempted. Confirm the dashboard shows the current
-URL/status, progress counts, and `csv_batch` provenance.
+Then create a mixed CSV containing 5 random individual Carousell URLs and 5 random Mudah
+URLs. Import it under **Data collection**, open the generated Stage 1 CSV, verify the summary,
+click **Start capture pass from Stage 1 file**, and keep Chrome open until all 10 rows have
+terminal capture checkpoints. Confirm Stage 3 did not start before Stage 2 capture completed,
+then click **Process next 50 · 1 hour**. Confirm the dashboard and extension popup show the
+three stages, checkpoint counts, failures, and `csv_batch` provenance.
 
 ## Process the manually captured pair
 
@@ -491,7 +548,7 @@ Correct mistakes, save, then approve only when correct.
 
 Approval requires at least one stored product image and the final integrity checks to pass.
 
-After the four representative records have been reviewed, use a second PowerShell window
+After the representative records have been reviewed, use a second PowerShell window
 to verify the isolated soft-test
 dataset and produce its approved-only export:
 
@@ -546,6 +603,26 @@ persistent soft-test database/assets.
 
 Synthetic test records are not research data.
 
+## Persistent 5+5 CSV soft test
+
+To exercise the staged CSV pipeline with five random rows from each supplied crawler file,
+stop the soft-test server and run:
+
+```powershell
+python scripts/reset_soft_test.py
+python scripts/soft_test_csv_pipeline.py
+python scripts/run_soft_test_server.py
+```
+
+The runner reads `../URL_Crawler/output/carousell_urls_full.csv` and
+`../URL_Crawler/output/mudah_urls_full.csv`, creates the viewable Stage 1 CSV, writes ten
+synthetic capture checkpoints, preprocesses ten synthetic product images with the mock
+extractor, and leaves all ten records in the human review queue. It never writes production.
+The auditable result is stored at
+`data/soft_test/runtime/reports/csv_pipeline_5x5.json`. The URLs are real rows from the supplied
+files, but the screenshot, page text, product image, and extraction evidence are synthetic;
+this validates the collector pipeline, not the current live marketplace pages.
+
 ---
 
 # 12. Daily collection workflow
@@ -599,9 +676,10 @@ remain in `captured` status until you use the manual batch processor.
 
 ## D. CSV replay mode
 
-Choose one CSV or paste one URL per line, click **Import URLs**, verify the summary, and click
-**Start**. Keep Chrome open. Replay captures and processes one supplied URL at a time; do not
-also start the manual backlog processor for those replay rows.
+Choose one CSV or paste one URL per line, import it, verify the summary, and click **Start
+capture pass**. Keep Chrome open. Replay captures every supplied URL once and finishes stage 1
+without invoking AI or product-image preprocessing. Then click **Process next 50 · 1 hour**
+to start a scoped stage-2 run.
 
 ## E. Process manually captured backlog
 
@@ -615,8 +693,8 @@ Maximum records: 50
 Start
 ```
 
-Manual-backlog processing stops when either limit is reached, the queue is empty, or you
-request Stop. CSV replay has its own durable controls and progress panel.
+Processing stops when either limit is reached, the scoped queue is empty, or you request Stop.
+CSV replay has its own durable capture controls and two-stage progress panel.
 
 ## F. Review
 
@@ -673,17 +751,19 @@ Crash recovery runs on server startup:
 
 ## CSV replay controls
 
-- Start
+- Start capture pass
 - Pause
 - Resume
 - Stop
-- Retry Failed
+- Retry capture failures
+- Process next 50 · 1 hour
 
 Replay opens one persisted user-supplied URL at a time. Pause safely checkpoints/finishes the
 current row before another claim. Stop retains completed records and skips untouched rows.
-Resume continues the durable queue. Retry Failed observes `MAX_CAPTURE_ATTEMPTS` and does
-not endlessly retry a clearly unavailable listing. Backend, dashboard, and browser restarts
-do not discard the stored batch.
+Resume continues the durable queue. A failed capture is not retried inside the same pass;
+**Retry capture failures** becomes available afterward and observes `MAX_CAPTURE_ATTEMPTS`.
+Stage 2 is separately limited to 50 records or 60 minutes by default. Backend, dashboard, and
+browser restarts do not discard either stored queue or their logs.
 
 ---
 
@@ -711,10 +791,10 @@ image_failed
 duplicate_blocked
 ```
 
-New manual-processing batches select only eligible `captured` rows and exclude rows currently
-owned by CSV replay. Replay claims only its persisted `pending` URL rows. Failed rows remain
-visible in their failure state and are not retried forever; retry one only after the
-underlying problem is corrected and an explicit retry is requested.
+Processing batches select only eligible `captured` rows and exclude every replay batch whose
+capture pass is still running, paused, or stopping. Scoped replay processing selects only the
+chosen replay's captured rows. Failed rows remain visible and are never retried during the
+current pass/run; correct the problem and request an explicit retry afterward.
 
 Every state transition is recorded in `status_history`.
 
@@ -781,7 +861,13 @@ Private screenshots are stored separately:
 
 ```text
 data/private/screenshots/<platform>/<listing_id>/listing.jpg
+data/private/screenshots/<platform>/<listing_id>/seller.jpg   (when available)
+data/private/staging/<listing_id>.json                        (PII-scrubbed text + image URLs)
 ```
+
+Before stage 2, the product-image URLs are only staged in that private JSON file; the
+product image files have not been downloaded yet. The queue/checkpoint, source URL, and
+listing record are stored in `data/collector.sqlite3`.
 
 They are never included in normal dataset exports.
 
@@ -1011,6 +1097,35 @@ The listing export intentionally excludes:
 - AI confidence fields
 - raw seller identity/contact details
 
+## Auto-updating annotation handoff
+
+GuardianLens also maintains a non-destructive, one-way research-data view under:
+
+```text
+data/exports/annotation_dataset/
+```
+
+It contains master CSVs for all imported source rows, captured listings, product-image
+references, review/audit history, exact-status views, quality findings, and an
+`annotation_test.csv` pilot containing only human-approved records. Product images stay in
+their canonical `data/images/<platform>/<listing_id>/` directories and are referenced by
+path; they are never copied or moved by the export.
+
+The view refreshes after committed collection, processing, and human-review changes and on
+application startup. SQLite remains authoritative: editing a generated CSV does not update
+the database and the next refresh overwrites that edit. To recover from a failed automatic
+refresh, run:
+
+```powershell
+python scripts/refresh_annotation_dataset.py
+```
+
+Only existing workflow statuses and collection categories are labels. `approved` means a
+human accepted the collected record; it does not mean legitimate or fraudulent, and the
+test CSV is not an ML train/test assignment. Missing source values remain empty rather than
+being guessed or filled with placeholders. Private screenshots/staging data, secrets,
+backups, and raw AI structured output never enter this handoff folder.
+
 ---
 
 # 23. Run all automated tests
@@ -1074,11 +1189,12 @@ It checks:
 
 - required folder structure
 - category percentages sum to 100
-- target total is 2,500
-- Carousell target is 1,500
-- Mudah target is 1,000
+- target total is 2,209 (final dataset size)
+- Carousell target is 1,410
+- Mudah target is 799
 - Manifest V3 extension
-- no `<all_urls>` extension permission
+- no always-on `<all_urls>` host permission; unattended queued screenshots use an explicit
+  optional permission that the operator can grant or revoke in the popup
 - JavaScript syntax when Node.js is available
 - localhost-only bind configuration
 - SQLite schema creation/readability in an OS temporary directory
@@ -1116,7 +1232,8 @@ data/reports/security_audit.json
 The runtime security report checks:
 
 - localhost-only server binding
-- absence of the broad `<all_urls>` extension permission
+- absence of an always-on broad `<all_urls>` host permission; the broad screenshot grant is
+  optional, operator-controlled, and checked before any replay URL is claimed
 - absence of the configured provider key from extension files, active-mode exports, and logs
 
 Separate self-test, regression-test, manifest, and release-verifier gates check the
@@ -1169,21 +1286,17 @@ Run this periodically and again before declaring collection complete.
 
 # 27. Collection completion rule
 
-Do **not** stop at:
+Collection is complete. The final approved dataset is:
 
 ```text
-2,500 captured
+Approved total: 2,209
+Carousell:      1,410
+Mudah:            799
 ```
 
-Stop the collection phase only when the approved dataset has approximately:
-
-```text
-Approved total: 2,500
-Carousell:      1,500
-Mudah:          1,000
-```
-
-and your configured category coverage is acceptable.
+This is the project's dataset going forward — there is no larger number still being collected
+toward. This section is kept for reference in case collection is ever reopened; if it is, restate
+a new target explicitly in `config/platform_targets.yaml` rather than reusing an old one.
 
 Then run:
 
@@ -1191,6 +1304,7 @@ Then run:
 python scripts/security_audit.py
 python scripts/data_integrity_audit.py
 python scripts/export_approved.py
+python scripts/verify_approved_live.py    # spot-check approved records against the live marketplace pages
 ```
 
 The next phase should work from the exported/frozen approved dataset, not directly from captured drafts.
@@ -1209,12 +1323,12 @@ conda init powershell
 
 Close and reopen the terminal.
 
-## Port 8765 is already in use
+## Port 8770 is already in use
 
 Check Windows:
 
 ```powershell
-netstat -ano | findstr :8765
+netstat -ano | findstr :8770
 ```
 
 If you intentionally change `PORT` in `.env`, also change the local server URL in the extension popup.
@@ -1250,10 +1364,9 @@ OPENAI_API_KEY=...
 
 Restart the server.
 
-The manual capture request itself does not require an AI provider, so you can continue
-manually capturing pages and process them later. CSV replay **Start** requires a configured
-active provider because replay automatically sends each successful capture through the
-existing processor. You may still import and inspect a draft batch before configuring it.
+Neither manual capture nor replay **Start capture pass** requires an AI provider. You can
+capture and checkpoint URLs first, then configure or verify the provider before stage 2.
+**Process next 50 · 1 hour** requires a configured active provider.
 Authentication, quota, unsupported-model, rate-limit, timeout, network, and invalid-response
 failures appear with safe classifications on the dashboard; credentials are redacted.
 
@@ -1261,9 +1374,16 @@ failures appear with safe classifications on the dashboard; credentials are reda
 
 1. Confirm GuardianLens is running and the batch status is `running`.
 2. Confirm the extension has the current dashboard token and correct local server URL.
-3. Keep Chrome open and click **Check CSV Queue Now** in the extension.
-4. If the batch is paused, click **Resume**.
-5. Check Recent Failures for login, CAPTCHA, access, timeout, or unavailable-page status.
+3. In the extension popup, click **Enable queued capture** and approve Chrome's one-time
+   optional screenshot permission. Chrome labels it broadly because unattended tabs do not
+   receive `activeTab`; GuardianLens still validates and captures only exact queued Carousell
+   Malaysia or Mudah listing tabs.
+4. Keep Chrome open and click **Check queue** in the extension.
+5. If the batch is paused, click **Resume**.
+6. Check the capture checkpoint log for permission, login, CAPTCHA, access, timeout, or
+   unavailable-page status.
+7. If capture is complete but preprocessing has not started, verify the active provider/model,
+   then click **Process next 50 · 1 hour**.
 
 ## CSV import is rejected
 
@@ -1331,8 +1451,8 @@ After the automated tests pass:
 7. start soft-test server
 8. manually capture exactly 1 Carousell listing
 9. manually capture exactly 1 Mudah listing
-10. import a two-row CSV with a different listing from each platform
-11. verify the import summary and start CSV replay
+10. import a mixed smoke-test CSV with 10 random listings from each platform
+11. verify the import summary and start the CSV capture pass, then its processing run
 12. process the two manual captures with max records 2
 13. review all successful manual and CSV captures
 14. correct AI mistakes

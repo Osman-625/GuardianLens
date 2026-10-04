@@ -1,0 +1,103 @@
+# Phrase lists are literal strings from the audit spec (English + Malay + common Malaysian
+# marketplace variants), cross-checked against Carousell/Mudah Trust & Safety guidance
+# (see rules/rule_documentation.md for citations). Every phrase is compiled to a
+# \b-bounded, case-insensitive regex - never a plain substring check (a naive substring scan
+# during Phase-1 inspection found "tac" false-firing inside "contact" 87 times).
+advance_payment:
+  weak:
+    - "deposit"
+    - "booking fee"
+    - "reservation fee"
+  strong:
+    - "deposit first"
+    - "deposit dulu"
+    - "secure item with deposit"
+    - "advance payment"
+    - "bayar dahulu"
+    - "bayar dulu"
+    - "duit muka"
+    - "transfer first"
+    - "direct transfer"
+    - "payment outside platform"
+    - "pay before viewing"
+    - "deposit before inspection"
+    - "bank transfer"
+
+agent_courier_release_fee:
+  strong:
+    - "agent fee"
+    - "courier fee"
+    - "processing fee"
+    - "release fee"
+    - "verification fee"
+    - "shipping agent fee"
+    - "insurance fee"
+    - "payment release fee"
+    - "caj ejen"
+    - "caj penghantaran"
+    - "caj proses"
+    - "bayaran pelepasan"
+
+fake_payment_confirmation:
+  medium:
+    - "payment already made"
+    - "payment confirmed"
+    - "money transferred"
+    - "click to receive payment"
+    - "claim payment"
+    - "verify to receive payment"
+    - "payment pending verification"
+    - "release funds"
+    - "payment waiting"
+    - "buyer already paid"
+    - "payment screenshot"
+    - "screenshot of payment"
+    - "screenshot of the transfer"
+
+off_platform_contact:
+  weak:
+    - "whatsapp"
+    - "whatsapp me"
+    - "wasap"
+    - "\\bws\\b"
+    - "telegram"
+    - "pm whatsapp"
+    - "call me"
+    - "contact number"
+    - "hubungi whatsapp"
+    - "hubungi nombor"
+    - "direct message outside platform"
+
+impersonation:
+  weak:
+    - "carousell admin"
+    - "carousell support"
+    - "carousell staff"
+    - "mudah admin"
+    - "mudah staff"
+    - "payment department"
+    - "bank officer"
+    - "official agent"
+    - "courier representative"
+
+credential_request:
+  critical:
+    - "otp"
+    - "\\btac\\b"
+    - "one time password"
+    - "\\bpin\\b number"
+    - "cvv"
+    - "security code"
+    - "card number"
+    - "bank password"
+    - "bank login"
+
+urgency_language:
+  weak:
+    - "act now"
+    - "limited time"
+    - "hurry"
+    - "last chance"
+    - "urgent sale"
+    - "jual segera"
+    - "cepat"

@@ -29,6 +29,18 @@ python scripts\mock_integration_check.py
 images, exports, and reports in another disposable project. Neither resets or writes the
 persistent production or soft-test runtime.
 
+To run the persistent, isolated 5+5 CSV pipeline check using the supplied crawler files:
+
+```powershell
+python scripts\reset_soft_test.py
+python scripts\soft_test_csv_pipeline.py
+```
+
+It must report 10 captured, 10 processed, 10 stored images, and 10 records in
+`ready_for_review`, with no failures. Its JSON result is written to
+`data/soft_test/runtime/reports/csv_pipeline_5x5.json`. Source URLs come from the supplied
+Carousell/Mudah CSV files; all capture and extraction evidence is synthetic.
+
 ## 3. Dataset audits
 
 For the active mode:
@@ -102,15 +114,16 @@ Validate the original manual path:
 2. manually capture one individual Mudah.my listing; and
 3. attach seller behaviour when the marketplace exposes it.
 
-Then validate CSV replay with a two-row CSV containing a different individual Carousell
-listing and Mudah listing:
+Then validate CSV replay with a mixed CSV containing 10 random individual Carousell URLs
+and 10 random Mudah URLs:
 
 1. import the file and verify every import-summary count;
-2. start the replay and keep Chrome open;
-3. confirm the current URL/status and progress counters update;
-4. confirm both records show `csv_batch`, batch ID, row, filename, and source-category
+2. start the capture pass and keep Chrome open until all 20 rows have terminal checkpoints;
+3. confirm the dashboard and extension popup update without starting preprocessing early;
+4. start the scoped 50-record/60-minute processing run and confirm its durable run log;
+5. confirm successful records show `csv_batch`, batch ID, row, filename, and source-category
    provenance; and
-5. confirm a failure, if encountered, is isolated and does not silently disappear.
+6. confirm failures do not retry inside the current pass/run and do not silently disappear.
 
 For all successful records, confirm capture → selected provider/model → normalized extraction
 → PII → images → duplicates → ready for review → full evidence/form → human correction →

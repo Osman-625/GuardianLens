@@ -1,12 +1,14 @@
 from __future__ import annotations
+import asyncio
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode
+from typing import Annotated, Literal
 import uvicorn
 from fastapi import FastAPI, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from .config import settings, AI_PROVIDERS, get_active_provider, set_active_provider, provider_model, provider_configured
 from .provider_info import MODEL_LISTERS
 from .db import init_db, connect, transaction
@@ -25,18 +27,29 @@ from .models import (
     ReviewUpdate,
     BatchStartRequest,
     ReplayItemUpdate,
+    SellerRetryPrepareRequest,
+    SellerRetryItemUpdate,
 )
 from .capture import create_capture, attach_seller_capture
 from .dashboard import (
     LISTING_STATUSES,
     RETRYABLE_FAILURE_STATUSES,
     REVIEW_QUEUE_STATUSES,
+    adjacent_review_listing_ids,
     dashboard_snapshot,
     records_page,
     review_queue_snapshot,
 )
 from .batch import batch_manager
-from .replay import CSVImportError, create_csv_batch, create_manual_batch, replay_manager
+from .replay import (
+    CSVImportError,
+    create_csv_batch,
+    create_manual_batch,
+    get_stage_file,
+    replay_manager,
+)
+from .seller_retry import seller_retry_manager
+from .attention_agent import attention_agent_manager
 from .review import (
     PrivateAssetCleanupError,
     get_listing,
@@ -48,6 +61,10 @@ from .review import (
 from .exports import export_approved
 from .states import transition
 from .errors import classify_error
+from .collection_handoff import (
+    get_annotation_dataset_status,
+    refresh_annotation_dataset_safely,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,11 +72,23 @@ async def lifespan(app: FastAPI):
     ensure_local_token()
     batch_manager.recover()
     replay_manager.recover()
-    yield
-    replay_manager.shutdown()
-    batch_manager.stop()
+    seller_retry_manager.recover()
+    attention_agent_manager.recover()
+    # The derived CSV dataset can take minutes to rebuild for a large collection.
+    # Serve the dashboard while it refreshes, and finish publication on shutdown.
+    dataset_refresh = asyncio.create_task(
+        asyncio.to_thread(refresh_annotation_dataset_safely, "application_startup")
+    )
+    try:
+        yield
+    finally:
+        attention_agent_manager.shutdown()
+        seller_retry_manager.shutdown()
+        replay_manager.shutdown()
+        batch_manager.stop()
+        await dataset_refresh
 
-app = FastAPI(title="GuardianLens Data Collector", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="GuardianLens Data Collector", version="1.0.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=settings.root / "src" / "guardianlens" / "static"), name="static")
 templates = Jinja2Templates(directory=settings.root / "src" / "guardianlens" / "templates")
 
@@ -97,6 +126,9 @@ def dashboard(request: Request):
             **snapshot,
             "batch": batch_manager.status(),
             "replay": replay_manager.status(),
+            "seller_retry": seller_retry_manager.status(),
+            "attention": attention_agent_manager.status(),
+            "annotation_dataset": get_annotation_dataset_status(),
             "token": get_local_token(),
             "mode": settings.mode,
             "csv_import_max_rows": settings.csv_import_max_rows,
@@ -110,6 +142,8 @@ def dashboard_status():
         **dashboard_snapshot(),
         "batch": batch_manager.status(),
         "replay": replay_manager.status(),
+        "seller_retry": seller_retry_manager.status(),
+        "annotation_dataset": get_annotation_dataset_status(),
         "ai_status": _ai_status_payload(),
     }
 
@@ -130,28 +164,75 @@ def capture_seller(listing_id: str, payload: SellerCaptureRequest):
         raise HTTPException(400, str(e))
 
 @app.get("/review", response_class=HTMLResponse)
-def review_queue(request: Request):
-    queue = review_queue_snapshot()
+def review_queue(request: Request, bucket: str | None = None, flash: str | None = None):
+    try:
+        queue = review_queue_snapshot(bucket=bucket)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return templates.TemplateResponse(
         request,
         "review_queue.html",
-        {**queue, "token": get_local_token()},
+        {**queue, "token": get_local_token(), "flash": FLASH_LABELS.get(flash, flash)},
     )
 
 @app.get("/api/review/queue")
-def review_queue_status():
-    return review_queue_snapshot()
+def review_queue_status(bucket: str | None = None):
+    try:
+        return review_queue_snapshot(bucket=bucket)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+FLASH_LABELS = {
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "skipped": "Skipped",
+    "flagged": "Flagged",
+    "saved": "Saved",
+}
+
+
+def _bucket_query_suffix(bucket: str | None) -> str:
+    return f"?bucket={bucket}" if bucket and bucket != "all" else ""
+
+
+def _review_url(path: str, bucket: str | None, *, flash: str | None = None) -> str:
+    query: dict[str, str] = {}
+    if bucket and bucket != "all":
+        query["bucket"] = bucket
+    if flash:
+        query["flash"] = flash
+    return f"{path}?{urlencode(query)}" if query else path
+
+
+def _next_review_target(bucket: str | None, *, flash: str | None = None) -> str:
+    """Where to send the operator after a terminal review action: the next item in
+    the same bucket if one remains, otherwise back to that bucket's queue."""
+    normalized = None if bucket in (None, "all") else bucket
+    try:
+        rows = review_queue_snapshot(limit=1, bucket=normalized)["rows"]
+    except ValueError:
+        return _review_url("/review", None, flash=flash)
+    if rows:
+        return _review_url(f"/review/{rows[0]['listing_id']}", bucket, flash=flash)
+    return _review_url("/review", bucket, flash=flash)
 
 
 def _review_response(
     request: Request,
     item: dict,
     *,
+    bucket: str | None = None,
+    flash: str | None = None,
     submitted: dict | None = None,
     error_message: str | None = None,
     status_code: int = 200,
 ):
     display_item = {**item, **(submitted or {})}
+    try:
+        adjacent = adjacent_review_listing_ids(item["listing_id"], bucket=None if bucket == "all" else bucket)
+    except ValueError:
+        adjacent = {"prev_id": None, "next_id": None}
     return templates.TemplateResponse(
         request,
         "review_detail.html",
@@ -161,6 +242,11 @@ def _review_response(
             "token": get_local_token(),
             "review_active": item["status"] == "under_review",
             "error_message": error_message,
+            "flash": FLASH_LABELS.get(flash, flash),
+            "attention_history": attention_agent_manager.record_history(item["listing_id"]),
+            "bucket": bucket,
+            "prev_id": adjacent["prev_id"],
+            "next_id": adjacent["next_id"],
         },
         status_code=status_code,
     )
@@ -170,6 +256,7 @@ def _record_response(
     request: Request,
     item: dict,
     *,
+    bucket: str | None = None,
     page_notice: str | None = None,
     status_code: int = 200,
 ):
@@ -181,6 +268,8 @@ def _record_response(
             "token": get_local_token(),
             "reviewable": item["status"] in REVIEW_QUEUE_STATUSES,
             "page_notice": page_notice,
+            "attention_history": attention_agent_manager.record_history(item["listing_id"]),
+            "bucket": bucket,
         },
         status_code=status_code,
     )
@@ -195,17 +284,17 @@ def _validation_message(error: ValidationError) -> str:
 
 
 @app.get("/review/{listing_id}", response_class=HTMLResponse)
-def review_detail(request: Request, listing_id: str):
+def review_detail(request: Request, listing_id: str, bucket: str | None = None, flash: str | None = None):
     try:
         item = get_listing(listing_id)
     except (KeyError, ValueError) as e:
         raise HTTPException(404, str(e))
     if item["status"] not in REVIEW_QUEUE_STATUSES:
         raise HTTPException(409, "listing is not in the human review queue")
-    return _review_response(request, item)
+    return _review_response(request, item, bucket=bucket, flash=flash)
 
 @app.post("/review/{listing_id}/begin", dependencies=[Depends(require_local_token_form)])
-def review_begin(request: Request, listing_id: str):
+def review_begin(request: Request, listing_id: str, bucket: str | None = None):
     try:
         begin_review(listing_id)
     except KeyError as exc:
@@ -218,13 +307,14 @@ def review_begin(request: Request, listing_id: str):
         return _record_response(
             request,
             item,
+            bucket=bucket,
             page_notice=f"Could not begin review: {exc}",
             status_code=409,
         )
-    return RedirectResponse(f"/review/{listing_id}", status_code=303)
+    return RedirectResponse(f"/review/{listing_id}{_bucket_query_suffix(bucket)}", status_code=303)
 
 @app.post("/review/{listing_id}/save", dependencies=[Depends(require_local_token_form)])
-async def review_save(request: Request, listing_id: str):
+async def review_save(request: Request, listing_id: str, bucket: str | None = None):
     form = await request.form()
     submitted = {k: v for k, v in form.items() if k in ReviewUpdate.model_fields}
     non_empty = {k: v for k, v in submitted.items() if v != ""}
@@ -238,6 +328,7 @@ async def review_save(request: Request, listing_id: str):
         return _review_response(
             request,
             item,
+            bucket=bucket,
             submitted=submitted,
             error_message=_validation_message(e),
             status_code=400,
@@ -248,7 +339,7 @@ async def review_save(request: Request, listing_id: str):
     try:
         if form.get("submit_action") == "approve":
             edit_and_approve(listing_id, data, reason)
-            return RedirectResponse("/review", status_code=303)
+            return RedirectResponse(_next_review_target(bucket, flash="approved"), status_code=303)
         edit_listing(listing_id, data, reason)
     except ValueError as e:
         try:
@@ -258,6 +349,7 @@ async def review_save(request: Request, listing_id: str):
         return _review_response(
             request,
             item,
+            bucket=bucket,
             submitted=submitted,
             error_message=str(e),
             status_code=400,
@@ -266,13 +358,14 @@ async def review_save(request: Request, listing_id: str):
         return _record_response(
             request,
             get_listing(listing_id),
+            bucket=bucket,
             page_notice=str(e),
             status_code=500,
         )
-    return RedirectResponse(f"/review/{listing_id}", status_code=303)
+    return RedirectResponse(_review_url(f"/review/{listing_id}", bucket, flash="saved"), status_code=303)
 
 @app.post("/review/{listing_id}/action/{target}", dependencies=[Depends(require_local_token_form)])
-def act(request: Request, listing_id: str, target: str):
+def act(request: Request, listing_id: str, target: str, bucket: str | None = None):
     try:
         review_action(listing_id,target)
     except ValueError as e:
@@ -281,16 +374,17 @@ def act(request: Request, listing_id: str, target: str):
         except KeyError:
             raise HTTPException(404, "listing not found")
         if item["status"] in REVIEW_QUEUE_STATUSES:
-            return _review_response(request, item, error_message=str(e), status_code=400)
-        return _record_response(request, item, page_notice=str(e), status_code=400)
+            return _review_response(request, item, bucket=bucket, error_message=str(e), status_code=400)
+        return _record_response(request, item, bucket=bucket, page_notice=str(e), status_code=400)
     except PrivateAssetCleanupError as e:
         return _record_response(
             request,
             get_listing(listing_id),
+            bucket=bucket,
             page_notice=str(e),
             status_code=500,
         )
-    return RedirectResponse("/review", status_code=303)
+    return RedirectResponse(_next_review_target(bucket, flash=target), status_code=303)
 
 @app.get("/records", response_class=HTMLResponse)
 def record_index(
@@ -366,14 +460,30 @@ def image(request: Request, image_id: str):
     if allowed not in p.parents or not p.is_file(): raise HTTPException(404)
     return FileResponse(p, headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
 
+
+@app.get("/asset/replay-stage/{batch_id}")
+def replay_stage_file(request: Request, batch_id: str, download: bool = False):
+    require_same_origin_asset(request)
+    try:
+        path = get_stage_file(batch_id)
+    except KeyError:
+        raise HTTPException(404, "replay batch not found")
+    except FileNotFoundError:
+        raise HTTPException(404, "Stage 1 URL file not found")
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        path,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, private",
+            "Content-Disposition": f'{disposition}; filename="stage_1_urls_{path.parent.name}.csv"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
 @app.post("/api/batch/start", dependencies=[Depends(require_local_token)])
 def batch_start(payload: BatchStartRequest):
-    active_provider = get_active_provider()
-    if not provider_configured(active_provider):
-        raise HTTPException(
-            409,
-            f"{active_provider} is active but has no API key configured; configure or switch providers before starting",
-        )
+    _require_active_provider()
     try:
         rid = batch_manager.start(payload.duration_minutes, payload.item_limit)
     except RuntimeError as e:
@@ -413,7 +523,7 @@ async def replay_import(
         raise HTTPException(400, str(exc))
 
 
-def _require_replay_provider() -> None:
+def _require_active_provider() -> None:
     active_provider = get_active_provider()
     if not provider_configured(active_provider):
         raise HTTPException(
@@ -424,7 +534,6 @@ def _require_replay_provider() -> None:
 
 @app.post("/api/replay/{batch_id}/start", dependencies=[Depends(require_local_token)])
 def replay_start(batch_id: str):
-    _require_replay_provider()
     try:
         return replay_manager.start(batch_id)
     except KeyError:
@@ -447,7 +556,6 @@ def replay_command(batch_id: str, command: str):
 
 @app.post("/api/replay/{batch_id}/retry-failed", dependencies=[Depends(require_local_token)])
 def replay_retry_failed(batch_id: str):
-    _require_replay_provider()
     try:
         return replay_manager.retry_failed(batch_id)
     except KeyError:
@@ -484,6 +592,158 @@ def replay_item_update(batch_item_id: str, payload: ReplayItemUpdate):
     except RuntimeError as exc:
         raise HTTPException(409, str(exc))
 
+
+class AttentionStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["inspect", "repair"] = "inspect"
+    listing_ids: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    ] | None = Field(default=None, min_length=1, max_length=10000)
+    platform: Literal["carousell", "mudah"] | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=100)
+    item_limit: int | None = Field(default=None, ge=1, le=10000, strict=True)
+    time_limit_minutes: int = Field(default=60, ge=1, le=720, strict=True)
+    api_call_limit: int = Field(default=25, ge=0, le=10000, strict=True)
+    watch: bool = False
+    recovery_batch_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+@app.post("/api/attention/start", dependencies=[Depends(require_local_token)])
+def attention_start(payload: AttentionStartRequest):
+    try:
+        return attention_agent_manager.start(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post(
+    "/api/attention/{run_id}/command/{command}",
+    dependencies=[Depends(require_local_token)],
+)
+def attention_command(run_id: str, command: str):
+    if command not in {"pause", "resume", "stop"}:
+        raise HTTPException(404, "unknown attention agent command")
+    try:
+        return attention_agent_manager.command(run_id, command)
+    except KeyError:
+        raise HTTPException(404, "attention run not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/attention/status")
+def attention_status(run_id: str | None = None):
+    try:
+        return attention_agent_manager.status(run_id)
+    except KeyError:
+        raise HTTPException(404, "attention run not found")
+
+
+@app.post(
+    "/api/attention/{run_id}/recover-sellers",
+    dependencies=[Depends(require_local_token)],
+)
+def attention_recover_sellers(run_id: str):
+    try:
+        listing_ids = attention_agent_manager.recoverable_listing_ids(run_id)
+        if not listing_ids:
+            raise HTTPException(400, "no eligible seller captures remain in this run")
+        prepared = seller_retry_manager.prepare(
+            name="Attention agent seller recovery", listing_ids=listing_ids
+        )
+        batch = prepared.get("batch") or prepared
+        return seller_retry_manager.start(batch["retry_batch_id"])
+    except KeyError:
+        raise HTTPException(404, "attention run or seller retry batch not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/attention/records/{listing_id}")
+def attention_record_history(listing_id: str):
+    try:
+        return attention_agent_manager.record_history(listing_id)
+    except KeyError:
+        raise HTTPException(404, "listing not found")
+
+
+@app.post("/api/seller-retry/prepare", dependencies=[Depends(require_local_token)])
+def seller_retry_prepare(payload: SellerRetryPrepareRequest):
+    try:
+        return seller_retry_manager.prepare(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post(
+    "/api/seller-retry/{retry_batch_id}/start",
+    dependencies=[Depends(require_local_token)],
+)
+def seller_retry_start(retry_batch_id: str):
+    try:
+        return seller_retry_manager.start(retry_batch_id)
+    except KeyError:
+        raise HTTPException(404, "seller retry batch not found")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post(
+    "/api/seller-retry/{retry_batch_id}/command/{command}",
+    dependencies=[Depends(require_local_token)],
+)
+def seller_retry_command(retry_batch_id: str, command: str):
+    if command not in {"pause", "resume", "stop"}:
+        raise HTTPException(404, "unknown seller retry command")
+    try:
+        return seller_retry_manager.command(retry_batch_id, command)
+    except KeyError:
+        raise HTTPException(404, "seller retry batch not found")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/seller-retry/status")
+def seller_retry_status(retry_batch_id: str | None = None):
+    return seller_retry_manager.status(retry_batch_id)
+
+
+@app.post("/api/seller-retry/claim", dependencies=[Depends(require_local_token)])
+def seller_retry_claim():
+    return {"item": seller_retry_manager.claim_next()}
+
+
+@app.post(
+    "/api/seller-retry/items/{retry_item_id}",
+    dependencies=[Depends(require_local_token)],
+)
+def seller_retry_item_update(retry_item_id: str, payload: SellerRetryItemUpdate):
+    try:
+        return seller_retry_manager.update_item(
+            retry_item_id,
+            lease_token=payload.lease_token,
+            status=payload.status,
+            seller_url=payload.seller_url,
+            status_message=payload.status_message,
+            error_type=payload.error_type,
+            error_message=payload.error_message,
+        )
+    except KeyError:
+        raise HTTPException(404, "seller retry item not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
 class RetryListingsRequest(BaseModel):
     listing_ids: list[str]
 
@@ -495,6 +755,11 @@ def retry_listings(payload: RetryListingsRequest):
     retried: list[str] = []
     rejected: list[dict] = []
     with transaction() as con:
+        control = con.execute(
+            "SELECT command FROM processor_control WHERE control_id=1"
+        ).fetchone()
+        if control and control["command"] in {"running", "paused", "stopping"}:
+            raise HTTPException(409, "finish the current processing run before retrying failures")
         for listing_id in listing_ids:
             row = con.execute("SELECT status FROM listings WHERE listing_id=?", (listing_id,)).fetchone()
             if not row:
@@ -505,6 +770,8 @@ def retry_listings(payload: RetryListingsRequest):
                 continue
             transition(listing_id, "captured", "human requested eligible retry", con=con)
             retried.append(listing_id)
+    if retried:
+        refresh_annotation_dataset_safely("queue_retry_committed")
     return {"retried": retried, "rejected": rejected}
 
 def _ai_status_payload() -> dict:

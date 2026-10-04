@@ -31,7 +31,7 @@ def main() -> None:
         try:
             models = MODEL_LISTERS[name]()
             found = provider_model(name) in models
-            label = "free+vision models" if name == "openrouter" else "models visible to this key"
+            label = "models visible to this key"
             print(f"  {len(models)} {label}. Configured model {provider_model(name)!r} found: {found}")
             for m in models:
                 marker = " <- configured" if m == provider_model(name) else ""

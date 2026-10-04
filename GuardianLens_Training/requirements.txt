@@ -1,0 +1,11 @@
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+matplotlib>=3.9
+pyyaml>=6.0
+joblib>=1.4
+xgboost>=2.0
+# CLIP / SSCD / XLM-R (use the GPU build of torch on Colab; it is preinstalled there)
+torch>=2.3
+transformers>=4.44
+pillow>=10.0

@@ -36,6 +36,12 @@ REVIEW_QUEUE_STATUSES = (
     "flagged",
 )
 
+REVIEW_QUEUE_BUCKETS = {
+    "ready": ("ready_for_review",),
+    "attention": ("needs_attention",),
+    "other": ("under_review", "skipped", "flagged"),
+}
+
 OPERATIONAL_QUEUE_STATUSES = (
     "captured",
     "processing",
@@ -168,17 +174,31 @@ def dashboard_snapshot() -> dict:
         con.close()
 
 
-def review_queue_snapshot(limit: int = 100) -> dict:
+def review_queue_snapshot(limit: int = 100, bucket: str | None = None) -> dict:
     limit = max(1, min(100, int(limit)))
+    if bucket is not None and bucket not in REVIEW_QUEUE_BUCKETS:
+        raise ValueError("unknown review queue bucket")
+    statuses = REVIEW_QUEUE_BUCKETS[bucket] if bucket else REVIEW_QUEUE_STATUSES
     con = connect()
     try:
         con.execute("BEGIN")
-        total = int(
-            con.execute(
-                f"SELECT COUNT(*) AS n FROM listings WHERE status IN ({_placeholders(REVIEW_QUEUE_STATUSES)})",
+        status_counts = {
+            row["status"]: int(row["n"])
+            for row in con.execute(
+                f"""
+                SELECT status, COUNT(*) AS n FROM listings
+                WHERE status IN ({_placeholders(REVIEW_QUEUE_STATUSES)})
+                GROUP BY status
+                """,
                 REVIEW_QUEUE_STATUSES,
-            ).fetchone()["n"]
-        )
+            )
+        }
+        bucket_counts = {
+            name: sum(status_counts.get(status, 0) for status in bucket_statuses)
+            for name, bucket_statuses in REVIEW_QUEUE_BUCKETS.items()
+        }
+        bucket_counts["all"] = sum(bucket_counts.values())
+        total = sum(status_counts.get(status, 0) for status in statuses)
         rows = [
             dict(row)
             for row in con.execute(
@@ -186,7 +206,7 @@ def review_queue_snapshot(limit: int = 100) -> dict:
                 SELECT listing_id, platform, title, page_title, category, price,
                        currency, status, captured_at, updated_at
                 FROM listings
-                WHERE status IN ({_placeholders(REVIEW_QUEUE_STATUSES)})
+                WHERE status IN ({_placeholders(statuses)})
                 ORDER BY CASE status
                     WHEN 'needs_attention' THEN 0
                     WHEN 'flagged' THEN 1
@@ -196,14 +216,64 @@ def review_queue_snapshot(limit: int = 100) -> dict:
                     captured_at
                 LIMIT ?
                 """,
-                (*REVIEW_QUEUE_STATUSES, limit),
+                (*statuses, limit),
             )
         ]
         con.commit()
-        return {"rows": rows, "total": total, "limit": limit}
+        return {
+            "rows": rows,
+            "total": total,
+            "limit": limit,
+            "bucket": bucket or "all",
+            "bucket_counts": bucket_counts,
+        }
     except Exception:
         con.rollback()
         raise
+    finally:
+        con.close()
+
+
+def adjacent_review_listing_ids(listing_id: str, bucket: str | None = None) -> dict:
+    """Find the previous/next listing in the given bucket's queue order, anchored on
+    this listing's captured_at, so an operator can step through a bucket without
+    detouring through the queue table."""
+    if bucket is not None and bucket not in REVIEW_QUEUE_BUCKETS:
+        raise ValueError("unknown review queue bucket")
+    statuses = REVIEW_QUEUE_BUCKETS[bucket] if bucket else REVIEW_QUEUE_STATUSES
+    con = connect()
+    try:
+        anchor = con.execute(
+            "SELECT captured_at FROM listings WHERE listing_id=?", (listing_id,)
+        ).fetchone()
+        if anchor is None:
+            return {"prev_id": None, "next_id": None}
+        captured_at = anchor["captured_at"]
+        placeholders = _placeholders(statuses)
+        prev_row = con.execute(
+            f"""
+            SELECT listing_id FROM listings
+            WHERE status IN ({placeholders})
+              AND listing_id != ?
+              AND (captured_at < ? OR (captured_at = ? AND listing_id < ?))
+            ORDER BY captured_at DESC, listing_id DESC LIMIT 1
+            """,
+            (*statuses, listing_id, captured_at, captured_at, listing_id),
+        ).fetchone()
+        next_row = con.execute(
+            f"""
+            SELECT listing_id FROM listings
+            WHERE status IN ({placeholders})
+              AND listing_id != ?
+              AND (captured_at > ? OR (captured_at = ? AND listing_id > ?))
+            ORDER BY captured_at ASC, listing_id ASC LIMIT 1
+            """,
+            (*statuses, listing_id, captured_at, captured_at, listing_id),
+        ).fetchone()
+        return {
+            "prev_id": prev_row["listing_id"] if prev_row else None,
+            "next_id": next_row["listing_id"] if next_row else None,
+        }
     finally:
         con.close()
 

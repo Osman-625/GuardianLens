@@ -67,7 +67,8 @@ never enter ordinary exports.
 ### Pass 5 — Researcher experience
 
 Added exact live status counts, CSV upload and pasted-URL input, import summaries, current
-replay URL/status, progress/failure visibility, Start/Pause/Resume/Stop/Retry Failed,
+two-stage replay URL/status, popup/checkpoint visibility, capture controls, explicit retry,
+and scoped Process-next-50/60-minute controls,
 All Records search/paging, bounded review totals, provenance displays, keyboard/focus/touch
 improvements, and partial polling without full-page reloads. Manual capture and manual
 processing controls remain available.
@@ -93,10 +94,11 @@ These cannot be certified offline because they require the operator's current Ch
 marketplace pages, network path, and configured provider account:
 
 1. Manually capture one Carousell Malaysia and one Mudah individual listing.
-2. Import and replay a two-row CSV containing a different listing from each platform.
+2. Import and replay a mixed CSV with 10 random listings from each platform.
 3. Confirm actual page evidence, seller links, and image URLs remain compatible with the
    current marketplace DOMs in both modes.
-4. Confirm pause/resume and visible replay progress in the configured Chrome session.
+4. Confirm capture pause/resume/checkpoint progress, then separately start and monitor the
+   scoped preprocessing run in the configured Chrome session.
 5. Confirm the selected real provider/model authenticates, extracts the normalized schema,
    and reports quota/model/network failures safely.
 6. Review, correct, approve, audit, and export the successful records in soft-test mode.

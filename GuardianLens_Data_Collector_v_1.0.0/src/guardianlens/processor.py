@@ -11,20 +11,11 @@ from .db import connect, transaction, now_iso
 from .states import transition
 from .extraction_contract import Extractor, normalize_extracted_listing
 from .errors import ProviderOperationError, classify_error, format_error_status, redact_secrets
-from .pii import scrub_text, residual_pii, is_placeholder_value
+from .pii import scrub_text
 from .dedupe import metadata_signature, hamming_hex
 from .images import download_image, validate_image_bytes, persist_product_image
-
-
-REQUIRED_FIELDS = ("title", "description", "category", "condition", "price", "currency", "location_state")
-SELLER_SIGNAL_FIELDS = ("account_age_days", "seller_rating", "review_count", "active_listing_count")
-PII_FREE_TEXT_FIELDS = (
-    "title",
-    "description",
-    "condition",
-    "location_state",
-    "location_city",
-    "language",
+from .validation import (
+    REQUIRED_FIELDS, SELLER_SIGNAL_FIELDS, PII_FREE_TEXT_FIELDS, validate_fields,
 )
 
 
@@ -34,9 +25,9 @@ def default_extractor() -> Extractor:
     if provider == "anthropic":
         from .anthropic_extractor import AnthropicExtractor
         return AnthropicExtractor()
-    if provider == "openrouter":
-        from .openrouter_extractor import OpenRouterExtractor
-        return OpenRouterExtractor()
+    if provider == "omniroute":
+        from .omniroute_extractor import OmniRouteExtractor
+        return OmniRouteExtractor()
     if provider == "gemini":
         from .gemini_extractor import GeminiExtractor
         return GeminiExtractor()
@@ -161,6 +152,7 @@ def _extract_with_retries(
                     source_url=row["source_url"],
                     visible_text=staging.get("visible_text"),
                     seller_visible_text=staging.get("seller_visible_text"),
+                    captured_at=row["captured_at"],
                 )
             )
             break
@@ -378,50 +370,8 @@ def process_listing(
                     "PII was automatically scrubbed: " + ", ".join(sorted(scrubbed_kinds)),
                 )
                 needs_attention = True
-            if extracted.get("category") and extracted["category"] not in categories:
-                add_warning(
-                    con,
-                    listing_id,
-                    "category",
-                    f"Category is not in configured list: {extracted['category']}",
-                )
-                needs_attention = True
-            for key in REQUIRED_FIELDS:
-                if extracted.get(key) in {None, ""}:
-                    add_warning(con, listing_id, "missing_field", f"Missing required field: {key}")
-                    needs_attention = True
-            placeholder_fields = [
-                key for key in PII_FREE_TEXT_FIELDS if is_placeholder_value(extracted.get(key))
-            ]
-            if placeholder_fields:
-                add_warning(
-                    con,
-                    listing_id,
-                    "placeholder_value",
-                    "Placeholder or non-informative value extracted for: " + ", ".join(placeholder_fields),
-                )
-                needs_attention = True
-            missing_seller_fields = [
-                key for key in SELLER_SIGNAL_FIELDS if extracted.get(key) in {None, ""}
-            ]
-            if missing_seller_fields:
-                add_warning(
-                    con,
-                    listing_id,
-                    "missing_field",
-                    "Missing required seller/behavioural field(s): " + ", ".join(missing_seller_fields),
-                )
-                needs_attention = True
-            residual = residual_pii(
-                "\n".join(str(extracted.get(key) or "") for key in PII_FREE_TEXT_FIELDS)
-            )
-            if residual:
-                add_warning(
-                    con,
-                    listing_id,
-                    "pii",
-                    "Residual PII patterns detected: " + ", ".join(residual),
-                )
+            for finding in validate_fields(extracted, categories):
+                add_warning(con, listing_id, finding["code"], finding["message"])
                 needs_attention = True
             if not downloaded:
                 add_warning(con, listing_id, "image", "No product image candidates were captured")

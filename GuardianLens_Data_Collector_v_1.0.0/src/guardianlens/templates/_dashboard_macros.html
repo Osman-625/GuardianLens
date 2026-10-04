@@ -1,0 +1,6 @@
+{% macro disclosure(id, title, opened=false) -%}
+<details class="dashboard-disclosure" data-dashboard-section="{{ id }}"{% if opened %} open{% endif %}>
+  <summary id="{{ id }}"><h2>{{ title }}</h2></summary>
+  <div class="disclosure-content">{{ caller() }}</div>
+</details>
+{%- endmacro %}

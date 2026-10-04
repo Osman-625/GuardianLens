@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Annotated
 from uuid import UUID
 
@@ -113,7 +114,7 @@ async def create_assessment(
         numeric_price = float(price.replace("RM", "").replace(",", "").strip())
     except ValueError as exc:
         raise AppError(422, "invalid_price", "Enter a valid non-negative price.", "price") from exc
-    if numeric_price < 0:
+    if not math.isfinite(numeric_price) or numeric_price < 0:
         raise AppError(422, "invalid_price", "Enter a valid non-negative price.", "price")
 
     language = detect_supported_language(f"{title} {description}")

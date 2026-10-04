@@ -37,7 +37,9 @@ def test_missing_image_goes_needs_attention_and_cannot_approve(isolated):
     begin_review(r['listing_id'])
     with pytest.raises(ValueError,match='product image'): approve(r['listing_id'])
 
-def test_missing_seller_signal_goes_needs_attention_and_cannot_approve(isolated, monkeypatch):
+def test_missing_seller_signal_goes_needs_attention_but_can_still_approve(isolated, monkeypatch):
+    # Seller/behavioural fields are not a hard approval requirement: when genuinely absent from
+    # the captured evidence (not just uncaptured), they stay null and do not block approval.
     monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=123))
     r=make_capture()
     no_seller_signal = {
@@ -49,24 +51,28 @@ def test_missing_seller_signal_goes_needs_attention_and_cannot_approve(isolated,
     c=connect(); warning=c.execute("SELECT warning_type,message FROM warnings WHERE listing_id=? AND message LIKE '%seller/behavioural%'",(r['listing_id'],)).fetchone(); c.close()
     assert warning is not None
     begin_review(r['listing_id'])
-    with pytest.raises(ValueError,match='seller/behavioural'): approve(r['listing_id'])
+    approve(r['listing_id'])
+    item=get_listing(r['listing_id']); assert item['status']=='approved'
+    assert item['account_age_days'] is None and item['active_listing_count'] is None
 
-def test_partially_missing_seller_signal_blocks_approval(isolated, monkeypatch):
-    # Distinct from test_missing_seller_signal_goes_needs_attention_and_cannot_approve, which uses
-    # all-null seller fields: here three of four are populated to prove "any missing" (not "all
-    # missing") is what blocks approval.
+def test_partially_missing_seller_signal_still_allows_approval(isolated, monkeypatch):
+    # Distinct from test_missing_seller_signal_goes_needs_attention_but_can_still_approve, which
+    # uses all-null seller fields: here three of four are populated to prove "any missing" (not
+    # "all missing") still only flags for review, and still does not block approval.
     monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=125))
     r=make_capture()
     partial_seller_signal = {
         'title':'Fixture Product','description':'Fixture description','category':'Audio','condition':'Used',
         'price':900,'currency':'MYR','location_state':'Selangor','location_city':None,
-        'account_age_days':3650,'seller_rating':4.9,'review_count':None,'active_listing_count':8,'language':'en',
+        'account_age_days':3650,'seller_rating':4.9,'review_count':55,'active_listing_count':None,'language':'en',
     }
     out=process_listing(r['listing_id'],MockExtractor(partial_seller_signal)); assert out['status']=='needs_attention'
     c=connect(); warning=c.execute("SELECT warning_type,message FROM warnings WHERE listing_id=? AND message LIKE '%seller/behavioural%'",(r['listing_id'],)).fetchone(); c.close()
-    assert warning is not None and 'review_count' in warning['message']
+    assert warning is not None and 'active_listing_count' in warning['message']
     begin_review(r['listing_id'])
-    with pytest.raises(ValueError,match='seller/behavioural'): approve(r['listing_id'])
+    approve(r['listing_id'])
+    item=get_listing(r['listing_id']); assert item['status']=='approved'
+    assert item['active_listing_count'] is None and item['review_count'] == 55
 
 def test_placeholder_title_goes_needs_attention_and_cannot_approve(isolated, monkeypatch):
     monkeypatch.setattr('guardianlens.processor.download_image', lambda u:image_bytes((400,300),value=124))
@@ -171,9 +177,9 @@ def test_process_listing_forwards_captured_source_url_to_extractor(isolated, mon
     class SpyExtractor(MockExtractor):
         received = {}
 
-        def extract(self, screenshot_path, platform, page_title, categories, source_url=None, visible_text=None, seller_visible_text=None):
+        def extract(self, screenshot_path, platform, page_title, categories, source_url=None, visible_text=None, seller_visible_text=None, captured_at=None):
             SpyExtractor.received['source_url'] = source_url
-            return super().extract(screenshot_path, platform, page_title, categories, source_url, visible_text, seller_visible_text)
+            return super().extract(screenshot_path, platform, page_title, categories, source_url, visible_text, seller_visible_text, captured_at)
 
     process_listing(r['listing_id'], SpyExtractor())
     assert SpyExtractor.received['source_url'] == get_listing(r['listing_id'])['source_url']
@@ -189,3 +195,45 @@ def test_near_duplicate_image_is_warning_not_auto_reject(isolated, monkeypatch):
     b=make_capture(suffix='42'); pb=MockExtractor().payload.copy();pb['title']='Product B';out=process_listing(b['listing_id'],MockExtractor(pb))
     c=connect(); kinds=[r['warning_type'] for r in c.execute('SELECT warning_type FROM warnings WHERE listing_id=?',(b['listing_id'],))];c.close()
     assert out['status']=='needs_attention' and 'near_duplicate_image' in kinds
+
+def test_review_actions_remain_fast_without_automatic_dataset_refresh(isolated, monkeypatch):
+    """Collection-only review saves approvals without invoking the legacy exporter."""
+    import threading, time
+    from guardianlens import annotation_dataset as ad
+
+    release = threading.Event()
+    calls: list[str] = []
+
+    def fake_refresh(trigger):
+        calls.append(trigger)
+        # Only the review-action triggers are made "slow" here; capture's own
+        # (unrelated, still-synchronous) refresh must not contaminate the timing
+        # window below with a multi-second wait.
+        if trigger.startswith('review_'):
+            assert release.wait(timeout=5), "background refresh was never released"
+        return {"ok": True}
+
+    monkeypatch.setattr(ad, "refresh_annotation_dataset", fake_refresh)
+    monkeypatch.setattr(ad, "SCHEDULE_DEBOUNCE_SECONDS", 0.05)
+    monkeypatch.setattr('guardianlens.processor.download_image', lambda u: image_bytes((400, 300), value=105))
+
+    try:
+        r = make_capture(suffix='50')
+        process_listing(r['listing_id'], MockExtractor())
+
+        before = time.monotonic()
+        begin_review(r['listing_id'])
+        edit_listing(r['listing_id'], {'title': 'Fast Review Title'})
+        approve(r['listing_id'])
+        elapsed = time.monotonic() - before
+
+        assert elapsed < 1.0, f"review actions took {elapsed:.2f}s; must not wait for the dataset rebuild"
+        assert get_listing(r['listing_id'])['status'] == 'approved'
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and 'review_approved' not in calls:
+            time.sleep(0.02)
+    finally:
+        release.set()
+        ad._cancel_scheduled_refresh_for_tests()
+
+    assert calls == [], "collection-only actions must not invoke automatic annotation exports"

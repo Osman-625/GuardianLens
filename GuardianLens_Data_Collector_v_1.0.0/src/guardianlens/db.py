@@ -6,12 +6,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from .config import settings
 
-LATEST_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = 8
 MIGRATION_NAMES = {
     1: "baseline_versioned_schema",
     2: "review_action_reason",
     3: "seller_capture_fields",
     4: "csv_batch_replay",
+    5: "scoped_replay_processing_runs",
+    6: "paced_seller_capture_retries",
+    7: "needs_attention_review_agent",
+    8: "live_listing_verification",
 }
 
 REQUIRED_TABLE_COLUMNS = {
@@ -43,7 +47,7 @@ REQUIRED_TABLE_COLUMNS = {
     "warnings": {"warning_id", "listing_id", "warning_type", "message", "resolved", "created_at"},
     "status_history": {"history_id", "listing_id", "from_status", "to_status", "timestamp", "reason"},
     "processing_runs": {
-        "run_id", "started_at", "finished_at", "duration_seconds", "duration_limit_minutes",
+        "run_id", "capture_batch_id", "started_at", "finished_at", "duration_seconds", "duration_limit_minutes",
         "item_limit", "status", "attempted", "processed", "successful", "duplicates",
         "ai_failures", "image_failures", "privacy_warnings", "needs_attention",
         "other_failures", "failed",
@@ -64,7 +68,49 @@ REQUIRED_TABLE_COLUMNS = {
         "attempt_id", "batch_item_id", "attempt_number", "started_at", "finished_at",
         "status", "error_type", "error_message",
     },
+    "seller_retry_batches": {
+        "retry_batch_id", "name", "status", "total_items", "max_attempts",
+        "min_interval_seconds", "jitter_seconds", "backoff_base_seconds",
+        "backoff_max_seconds", "block_backoff_base_seconds", "block_backoff_max_seconds",
+        "block_streak", "next_claim_at", "created_at", "started_at", "completed_at",
+        "updated_at",
+    },
+    "seller_retry_items": {
+        "retry_item_id", "retry_batch_id", "listing_id", "source_url", "seller_url",
+        "status", "status_message", "attempt_count", "next_attempt_at", "lease_token",
+        "lease_expires_at", "created_at", "started_at", "completed_at", "updated_at",
+        "last_error_type", "last_error_message", "last_error_at",
+    },
+    "seller_retry_attempts": {
+        "attempt_id", "retry_item_id", "attempt_number", "started_at", "finished_at",
+        "status", "seller_url", "error_type", "error_message",
+    },
     "schema_migrations": {"version", "name", "applied_at"},
+    "attention_agent_runs": {
+        "run_id", "status", "mode", "selection", "watch", "item_limit",
+        "time_limit_minutes", "api_call_limit", "api_calls", "elapsed_seconds",
+        "owner_id", "owner_pid", "lease_expires_at", "message", "created_at",
+        "started_at", "finished_at", "updated_at",
+    },
+    "attention_agent_items": {
+        "item_id", "run_id", "listing_id", "input_fingerprint", "output_fingerprint",
+        "outcome", "attempt_count", "next_attempt_at", "lease_token", "findings",
+        "changes", "api_called", "created_at", "started_at", "finished_at", "updated_at",
+    },
+    "attention_agent_changes": {
+        "change_id", "run_id", "item_id", "listing_id", "field", "before_value",
+        "after_value", "evidence", "provider", "model", "prompt_version", "created_at",
+    },
+    "live_verification_runs": {
+        "run_id", "status", "selection", "item_limit", "api_call_limit", "api_calls",
+        "rate_delay_seconds", "message", "created_at", "started_at", "finished_at",
+        "updated_at",
+    },
+    "live_verification_items": {
+        "item_id", "run_id", "listing_id", "outcome", "verdict", "fields_in_disagreement",
+        "details", "tier", "api_called", "attempt_count", "checked_at", "created_at",
+        "updated_at",
+    },
 }
 
 REQUIRED_INDEX_COLUMNS = {
@@ -83,6 +129,20 @@ REQUIRED_INDEX_COLUMNS = {
     "ix_capture_batch_items_url_hash": ("source_url_hash",),
     "ix_capture_batch_items_listing": ("listing_id",),
     "ix_capture_batch_attempts_item": ("batch_item_id", "attempt_number"),
+    "ix_seller_retry_batches_status_created": ("status", "created_at"),
+    "ix_seller_retry_items_queue": (
+        "retry_batch_id", "status", "next_attempt_at", "created_at"
+    ),
+    "ix_seller_retry_items_listing": ("listing_id",),
+    "ix_seller_retry_attempts_item": ("retry_item_id", "attempt_number"),
+    "ix_processing_runs_capture_batch": ("capture_batch_id", "started_at"),
+    "ix_attention_agent_runs_status": ("status", "created_at"),
+    "ix_attention_agent_items_queue": ("run_id", "outcome", "created_at"),
+    "ix_attention_agent_items_listing": ("listing_id", "input_fingerprint"),
+    "ix_attention_agent_changes_listing": ("listing_id", "created_at"),
+    "ix_live_verification_runs_status": ("status", "created_at"),
+    "ix_live_verification_items_queue": ("run_id", "outcome", "created_at"),
+    "ix_live_verification_items_listing": ("listing_id", "checked_at"),
 }
 
 REQUIRED_FOREIGN_KEYS = {
@@ -97,6 +157,26 @@ REQUIRED_FOREIGN_KEYS = {
     },
     "capture_batch_attempts": {
         ("batch_item_id", "capture_batch_items", "batch_item_id", "CASCADE"),
+    },
+    "seller_retry_items": {
+        ("retry_batch_id", "seller_retry_batches", "retry_batch_id", "CASCADE"),
+        ("listing_id", "listings", "listing_id", "SET NULL"),
+    },
+    "seller_retry_attempts": {
+        ("retry_item_id", "seller_retry_items", "retry_item_id", "CASCADE"),
+    },
+    "attention_agent_items": {
+        ("run_id", "attention_agent_runs", "run_id", "CASCADE"),
+        ("listing_id", "listings", "listing_id", "SET NULL"),
+    },
+    "attention_agent_changes": {
+        ("run_id", "attention_agent_runs", "run_id", "CASCADE"),
+        ("item_id", "attention_agent_items", "item_id", "CASCADE"),
+        ("listing_id", "listings", "listing_id", "SET NULL"),
+    },
+    "live_verification_items": {
+        ("run_id", "live_verification_runs", "run_id", "CASCADE"),
+        ("listing_id", "listings", "listing_id", "CASCADE"),
     },
 }
 
@@ -218,7 +298,7 @@ def _validate_schema(con: sqlite3.Connection, expected_version: int = LATEST_SCH
 
 def _apply_migration(con: sqlite3.Connection, version: int, schema: str) -> None:
     if version == 1:
-        # Version 1 adopts the existing v2.0.0 schema without rewriting user rows.
+        # Version 1 adopts the existing v1.0.0 schema without rewriting user rows.
         # CREATE IF NOT EXISTS is intentional: validation below rejects an older,
         # incompatible table shape and leaves the original transaction untouched.
         _execute_schema_statements(con, schema)
@@ -305,6 +385,95 @@ def _apply_migration(con: sqlite3.Connection, version: int, schema: str) -> None
         con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_items_url_hash ON capture_batch_items(source_url_hash)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_items_listing ON capture_batch_items(listing_id)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_capture_batch_attempts_item ON capture_batch_attempts(batch_item_id, attempt_number)")
+    elif version == 5:
+        columns = {row[1] for row in con.execute('PRAGMA table_info("processing_runs")')}
+        if "capture_batch_id" not in columns:
+            con.execute("ALTER TABLE processing_runs ADD COLUMN capture_batch_id TEXT")
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_processing_runs_capture_batch "
+            "ON processing_runs(capture_batch_id, started_at)"
+        )
+    elif version == 6:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS seller_retry_batches (
+                   retry_batch_id TEXT PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   status TEXT NOT NULL CHECK(status IN ('draft','running','paused','stopping','stopped','completed')),
+                   total_items INTEGER NOT NULL DEFAULT 0,
+                   max_attempts INTEGER NOT NULL DEFAULT 3,
+                   min_interval_seconds INTEGER NOT NULL DEFAULT 90,
+                   jitter_seconds INTEGER NOT NULL DEFAULT 60,
+                   backoff_base_seconds INTEGER NOT NULL DEFAULT 900,
+                   backoff_max_seconds INTEGER NOT NULL DEFAULT 3600,
+                   block_backoff_base_seconds INTEGER NOT NULL DEFAULT 900,
+                   block_backoff_max_seconds INTEGER NOT NULL DEFAULT 3600,
+                   block_streak INTEGER NOT NULL DEFAULT 0,
+                   next_claim_at TEXT,
+                   created_at TEXT NOT NULL,
+                   started_at TEXT,
+                   completed_at TEXT,
+                   updated_at TEXT NOT NULL
+               )"""
+        )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS seller_retry_items (
+                   retry_item_id TEXT PRIMARY KEY,
+                   retry_batch_id TEXT NOT NULL REFERENCES seller_retry_batches(retry_batch_id) ON DELETE CASCADE,
+                   listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+                   source_url TEXT NOT NULL,
+                   seller_url TEXT,
+                   status TEXT NOT NULL,
+                   status_message TEXT,
+                   attempt_count INTEGER NOT NULL DEFAULT 0,
+                   next_attempt_at TEXT,
+                   lease_token TEXT,
+                   lease_expires_at TEXT,
+                   created_at TEXT NOT NULL,
+                   started_at TEXT,
+                   completed_at TEXT,
+                   updated_at TEXT NOT NULL,
+                   last_error_type TEXT,
+                   last_error_message TEXT,
+                   last_error_at TEXT,
+                   UNIQUE(retry_batch_id, listing_id)
+               )"""
+        )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS seller_retry_attempts (
+                   attempt_id TEXT PRIMARY KEY,
+                   retry_item_id TEXT NOT NULL REFERENCES seller_retry_items(retry_item_id) ON DELETE CASCADE,
+                   attempt_number INTEGER NOT NULL,
+                   started_at TEXT NOT NULL,
+                   finished_at TEXT,
+                   status TEXT NOT NULL,
+                   seller_url TEXT,
+                   error_type TEXT,
+                   error_message TEXT
+               )"""
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_seller_retry_batches_status_created "
+            "ON seller_retry_batches(status, created_at)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_seller_retry_items_queue "
+            "ON seller_retry_items(retry_batch_id, status, next_attempt_at, created_at)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_seller_retry_items_listing "
+            "ON seller_retry_items(listing_id)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_seller_retry_attempts_item "
+            "ON seller_retry_attempts(retry_item_id, attempt_number)"
+        )
+    elif version == 7:
+        # Reuse the canonical additive table definitions; existing tables remain
+        # untouched and the common validator checks their complete shape.
+        _execute_schema_statements(con, schema)
+    elif version == 8:
+        # Additive: live_verification_runs/items. Same idempotent-statements approach as v7.
+        _execute_schema_statements(con, schema)
     else:
         raise MigrationError(f"no migration implementation for schema version {version}")
     con.execute(

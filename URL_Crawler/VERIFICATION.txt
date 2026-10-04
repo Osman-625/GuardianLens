@@ -1,0 +1,7 @@
+Verification performed before packaging:
+- categories.csv parsed successfully.
+- soft target total verified as exactly 150 URLs.
+- full Carousell target total verified as exactly 1,500 URLs.
+- Python files passed py_compile syntax validation.
+- URL normalization/filter unit tests passed (3/3).
+- Live browser smoke test could not reach Carousell from the build sandbox because outbound Chromium traffic is blocked by the sandbox administrator. setup.bat installs Playwright Chromium for the local Windows run.

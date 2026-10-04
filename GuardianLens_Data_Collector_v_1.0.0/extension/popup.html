@@ -1,33 +1,429 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>GuardianLens Capture</title>
-  <style>
-    body{font-family:system-ui,sans-serif;width:330px;padding:14px;background:#f8fafc;color:#111827}
-    h1{margin:0 0 12px;font-size:1.5rem}
-    label{font-size:12px;display:block;margin-top:10px}
-    input{width:100%;box-sizing:border-box;padding:8px;margin-top:4px;border:1px solid #94a3b8;border-radius:6px}
-    button{width:100%;min-height:44px;margin-top:12px;padding:10px;border:0;border-radius:7px;background:#111827;color:white;font-weight:700;cursor:pointer}
-    button:focus-visible,input:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}
-    .secondary{background:#475569}
-    #status{white-space:pre-wrap;font-size:12px;margin-top:12px;padding:8px;background:white;border:1px solid #cbd5e1;border-radius:6px}
-    .note{font-size:11px;color:#475569;line-height:1.4}
-  </style>
-</head>
-<body>
-  <h1>GuardianLens Capture</h1>
-  <p class="note">Open one Carousell Malaysia or Mudah listing yourself, then click Capture. This extension does not discover listings or crawl search pages.</p>
-  <label>Local server URL<input id="server" type="url" value="http://127.0.0.1:8765" spellcheck="false"></label>
-  <label>Local collector token<input id="token" type="password" placeholder="Copy from GuardianLens dashboard" autocomplete="off" spellcheck="false"></label>
-  <button id="save" type="button" class="secondary">Save settings</button>
-  <button id="capture" type="button">Capture Current Listing</button>
-  <p class="note">Then open that listing's seller/profile page yourself and click below to capture their behaviour data separately.</p>
-  <label>Listing ID<input id="listingId" type="text" placeholder="Filled in after a capture" spellcheck="false"></label>
-  <button id="captureSeller" type="button" class="secondary">Capture Seller Behaviour</button>
-  <p class="note">CSV batches from the dashboard run automatically while Chrome is open. Manual capture remains available at all times.</p>
-  <button id="syncReplay" type="button" class="secondary">Check CSV Queue Now</button>
-  <div id="status" role="status" aria-live="polite" aria-atomic="true">Ready.</div>
-  <script src="popup.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <title>GuardianLens Capture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #f5f5f4;
+        --surface: #fff;
+        --muted: #526071;
+        --border: #c7cdd5;
+        --text: #111827;
+        --primary: #172033;
+        --selected: #1e3a8a;
+        --focus: #f59e0b;
+        --success: #166534;
+        --danger: #991b1b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        width: 390px;
+        margin: 0;
+        padding: 16px;
+        background: var(--page);
+        color: var(--text);
+        font-family: Inter, system-ui, sans-serif;
+        line-height: 1.4;
+      }
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        margin-bottom: 4px;
+        font-size: 1.35rem;
+      }
+      h2 {
+        margin: 0;
+        font-size: 0.96rem;
+      }
+      label {
+        display: block;
+        margin-top: 10px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      input,
+      select {
+        width: 100%;
+        min-height: 40px;
+        margin-top: 4px;
+        padding: 8px;
+        border: 1px solid #8793a3;
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--text);
+      }
+      button {
+        width: 100%;
+        min-height: 42px;
+        margin-top: 10px;
+        padding: 9px 10px;
+        border: 1px solid var(--primary);
+        border-radius: 7px;
+        background: var(--primary);
+        color: #fff;
+        font: inherit;
+        font-weight: 750;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        filter: brightness(1.15);
+      }
+      button:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .secondary {
+        border-color: #334155;
+        background: #475569;
+        color: #fff;
+      }
+      .quiet {
+        background: var(--surface);
+        color: var(--primary);
+      }
+      .note {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .divider {
+        margin: 14px 0;
+        border: 0;
+        border-top: 1px solid var(--border);
+      }
+      .permission {
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 2px solid var(--focus);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+      .permission[data-state="granted"] {
+        border-color: var(--success);
+      }
+      .permission h2 {
+        margin-bottom: 5px;
+      }
+      .permission p {
+        margin-bottom: 4px;
+      }
+      .permission strong {
+        color: var(--danger);
+      }
+      .permission-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 7px;
+      }
+      .permission-actions button {
+        margin-top: 5px;
+      }
+      .permission-state {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 750;
+      }
+      .monitor {
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+      .monitor-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .batch-chip {
+        max-width: 210px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #e5e7eb;
+        color: #1f2937;
+        font-size: 10px;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .stages {
+        display: grid;
+        gap: 8px;
+      }
+      .stage {
+        padding: 9px;
+        border: 2px solid var(--border);
+        border-radius: 7px;
+        background: var(--page);
+      }
+      .stage-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .stage-head b {
+        font-size: 11px;
+      }
+      .stage[data-state="running"],
+      .stage[data-state="ready"] {
+        border-color: var(--selected);
+        box-shadow: 0 0 0 2px #93c5fd;
+      }
+      .stage[data-state="complete"] {
+        border-color: var(--success);
+      }
+      .stage[data-state="attention"] {
+        border-color: var(--focus);
+      }
+      .stage[data-state="locked"] {
+        opacity: 0.7;
+      }
+      .track {
+        height: 7px;
+        margin: 7px 0 5px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #d1d5db;
+      }
+      .fill {
+        width: 0;
+        height: 100%;
+        background: var(--selected);
+        transition: width 0.2s;
+      }
+      .stage small {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        overflow-wrap: anywhere;
+      }
+      .monitor-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .monitor-actions button {
+        margin-top: 8px;
+      }
+      .processing-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .processing-options label {
+        margin-top: 0;
+      }
+      .processing-options select {
+        min-height: 36px;
+        font-size: 11px;
+      }
+      .monitor-actions .wide {
+        grid-column: 1/-1;
+      }
+      #status {
+        min-height: 38px;
+        margin-top: 10px;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        font-size: 11px;
+        white-space: pre-wrap;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #11151b;
+          --surface: #191f28;
+          --muted: #b5bfcc;
+          --border: #475569;
+          --text: #eef2f7;
+          --primary: #1e3a8a;
+          --selected: #1e40af;
+          --success: #166534;
+        }
+        .batch-chip {
+          background: #303a48;
+          color: #f8fafc;
+        }
+        .quiet {
+          color: #f8fafc;
+        }
+        .track {
+          background: #374151;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>GuardianLens Capture</h1>
+    <p class="note">
+      Manual capture stays available. CSV replay captures supplied URLs first,
+      then runs pictures and preprocessing separately.
+    </p>
+    <label
+      >Local server URL<input
+        id="server"
+        type="url"
+        value="http://127.0.0.1:8770"
+        spellcheck="false"
+    /></label>
+    <label
+      >Local collector token<input
+        id="token"
+        type="password"
+        placeholder="Copy from GuardianLens dashboard"
+        autocomplete="off"
+        spellcheck="false"
+    /></label>
+    <button id="save" type="button" class="secondary">Save settings</button>
+    <button id="capture" type="button">Capture Current Listing</button>
+    <p class="note">
+      Then open that listing's seller/profile page yourself and click below to
+      capture their behaviour data separately.
+    </p>
+    <label
+      >Listing ID<input
+        id="listingId"
+        type="text"
+        placeholder="Filled in after a capture"
+        spellcheck="false"
+    /></label>
+    <button id="captureSeller" type="button" class="secondary">
+      Capture Seller Behaviour
+    </button>
+    <hr class="divider" />
+    <section
+      class="permission"
+      id="queuedPermission"
+      data-state="required"
+      aria-labelledby="permissionHeading"
+    >
+      <h2 id="permissionHeading">Queued screenshot permission</h2>
+      <p class="note">
+        Chrome requires a broad permission label to screenshot tabs opened
+        without a click. GuardianLens uses it only for exact queued Carousell
+        and Mudah listing or seller/profile tabs, one at a time; it does not
+        capture other tabs or your desktop.
+      </p>
+      <div class="permission-actions">
+        <button id="enableQueuedCapture" type="button">
+          Enable queued capture
+        </button>
+        <button id="disableQueuedCapture" type="button" class="quiet" hidden>
+          Revoke queued capture permission
+        </button>
+      </div>
+      <span id="queuedPermissionState" class="permission-state"
+        >Required for automatic CSV/pasted-URL and paced seller-retry
+        screenshots. Manual capture does not need it.</span
+      >
+    </section>
+    <section class="monitor" aria-labelledby="monitorHeading">
+      <div class="monitor-head">
+        <h2 id="monitorHeading">Queue monitor</h2>
+        <span id="monitorBatch" class="batch-chip">No batch</span>
+      </div>
+      <div class="stages">
+        <div class="stage" id="captureStage" data-state="locked">
+          <div class="stage-head">
+            <span>1 · URL capture</span><b id="captureStageState">Waiting</b>
+          </div>
+          <div
+            class="track"
+            role="progressbar"
+            aria-label="URL capture progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div id="captureStageFill" class="fill"></div>
+          </div>
+          <small id="captureStageDetail"
+            >Save settings, then import a queue on the dashboard.</small
+          >
+        </div>
+        <div class="stage" id="processingStage" data-state="locked">
+          <div class="stage-head">
+            <span>2 · Pictures + preprocessing</span
+            ><b id="processingStageState">Locked</b>
+          </div>
+          <div
+            class="track"
+            role="progressbar"
+            aria-label="Preprocessing progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div id="processingStageFill" class="fill"></div>
+          </div>
+          <small id="processingStageDetail"
+            >Available after every URL has a capture checkpoint.</small
+          >
+        </div>
+      </div>
+      <div class="processing-options" aria-label="Preprocessing run limits">
+        <label
+          >Duration (minutes)<input
+            type="number"
+            id="processDuration"
+            min="1"
+            step="1"
+            placeholder="Unlimited"
+        /></label>
+        <label
+          >Maximum records<input
+            type="number"
+            id="processLimit"
+            min="1"
+            step="1"
+            placeholder="All pending"
+        /></label>
+      </div>
+      <div class="monitor-actions">
+        <button id="syncReplay" type="button" class="secondary">
+          Check queue
+        </button>
+        <button id="openDashboard" type="button" class="quiet">
+          Dashboard
+        </button>
+        <button id="processNext" type="button" class="wide" disabled>
+          Process all pending · unlimited
+        </button>
+      </div>
+    </section>
+    <div id="status" role="status" aria-live="polite" aria-atomic="true">
+      Ready.
+    </div>
+    <script src="popup.js"></script>
+  </body>
 </html>

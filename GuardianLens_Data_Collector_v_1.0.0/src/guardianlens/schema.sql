@@ -121,6 +121,68 @@ CREATE TABLE IF NOT EXISTS capture_batch_attempts (
 CREATE INDEX IF NOT EXISTS ix_capture_batch_attempts_item
 ON capture_batch_attempts(batch_item_id, attempt_number);
 
+CREATE TABLE IF NOT EXISTS seller_retry_batches (
+    retry_batch_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('draft','running','paused','stopping','stopped','completed')),
+    total_items INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    min_interval_seconds INTEGER NOT NULL DEFAULT 90,
+    jitter_seconds INTEGER NOT NULL DEFAULT 60,
+    backoff_base_seconds INTEGER NOT NULL DEFAULT 900,
+    backoff_max_seconds INTEGER NOT NULL DEFAULT 3600,
+    block_backoff_base_seconds INTEGER NOT NULL DEFAULT 900,
+    block_backoff_max_seconds INTEGER NOT NULL DEFAULT 3600,
+    block_streak INTEGER NOT NULL DEFAULT 0,
+    next_claim_at TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_seller_retry_batches_status_created
+ON seller_retry_batches(status, created_at);
+
+CREATE TABLE IF NOT EXISTS seller_retry_items (
+    retry_item_id TEXT PRIMARY KEY,
+    retry_batch_id TEXT NOT NULL REFERENCES seller_retry_batches(retry_batch_id) ON DELETE CASCADE,
+    listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+    source_url TEXT NOT NULL,
+    seller_url TEXT,
+    status TEXT NOT NULL,
+    status_message TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    lease_token TEXT,
+    lease_expires_at TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    last_error_type TEXT,
+    last_error_message TEXT,
+    last_error_at TEXT,
+    UNIQUE(retry_batch_id, listing_id)
+);
+CREATE INDEX IF NOT EXISTS ix_seller_retry_items_queue
+ON seller_retry_items(retry_batch_id, status, next_attempt_at, created_at);
+CREATE INDEX IF NOT EXISTS ix_seller_retry_items_listing
+ON seller_retry_items(listing_id);
+
+CREATE TABLE IF NOT EXISTS seller_retry_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    retry_item_id TEXT NOT NULL REFERENCES seller_retry_items(retry_item_id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    seller_url TEXT,
+    error_type TEXT,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_seller_retry_attempts_item
+ON seller_retry_attempts(retry_item_id, attempt_number);
+
 CREATE TABLE IF NOT EXISTS images (
     image_id TEXT PRIMARY KEY,
     listing_id TEXT NOT NULL REFERENCES listings(listing_id) ON DELETE CASCADE,
@@ -186,6 +248,7 @@ CREATE TABLE IF NOT EXISTS status_history (
 
 CREATE TABLE IF NOT EXISTS processing_runs (
     run_id TEXT PRIMARY KEY,
+    capture_batch_id TEXT,
     started_at TEXT NOT NULL,
     finished_at TEXT,
     duration_seconds INTEGER,
@@ -203,6 +266,8 @@ CREATE TABLE IF NOT EXISTS processing_runs (
     other_failures INTEGER NOT NULL DEFAULT 0,
     failed INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS ix_processing_runs_capture_batch
+ON processing_runs(capture_batch_id, started_at);
 
 CREATE TABLE IF NOT EXISTS processor_control (
     control_id INTEGER PRIMARY KEY CHECK(control_id = 1),
@@ -210,3 +275,107 @@ CREATE TABLE IF NOT EXISTS processor_control (
     updated_at TEXT NOT NULL
 );
 INSERT OR IGNORE INTO processor_control(control_id, command, updated_at) VALUES (1, 'idle', CURRENT_TIMESTAMP);
+
+CREATE TABLE IF NOT EXISTS attention_agent_runs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN ('running','paused','stopping','stopped','completed','failed')),
+    mode TEXT NOT NULL CHECK(mode IN ('inspect','repair')),
+    selection TEXT NOT NULL,
+    watch INTEGER NOT NULL DEFAULT 0,
+    item_limit INTEGER,
+    time_limit_minutes INTEGER NOT NULL DEFAULT 60,
+    api_call_limit INTEGER NOT NULL DEFAULT 25,
+    api_calls INTEGER NOT NULL DEFAULT 0,
+    elapsed_seconds REAL NOT NULL DEFAULT 0,
+    owner_id TEXT,
+    owner_pid INTEGER,
+    lease_expires_at TEXT,
+    message TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_attention_agent_runs_status
+ON attention_agent_runs(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_attention_agent_one_active
+ON attention_agent_runs((1)) WHERE status IN ('running','paused','stopping');
+
+CREATE TABLE IF NOT EXISTS attention_agent_items (
+    item_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES attention_agent_runs(run_id) ON DELETE CASCADE,
+    listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+    input_fingerprint TEXT NOT NULL,
+    output_fingerprint TEXT,
+    outcome TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    lease_token TEXT,
+    findings TEXT NOT NULL DEFAULT '[]',
+    changes TEXT NOT NULL DEFAULT '[]',
+    api_called INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, listing_id, input_fingerprint)
+);
+CREATE INDEX IF NOT EXISTS ix_attention_agent_items_queue
+ON attention_agent_items(run_id, outcome, created_at);
+CREATE INDEX IF NOT EXISTS ix_attention_agent_items_listing
+ON attention_agent_items(listing_id, input_fingerprint);
+
+CREATE TABLE IF NOT EXISTS attention_agent_changes (
+    change_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES attention_agent_runs(run_id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL REFERENCES attention_agent_items(item_id) ON DELETE CASCADE,
+    listing_id TEXT REFERENCES listings(listing_id) ON DELETE SET NULL,
+    field TEXT NOT NULL,
+    before_value TEXT,
+    after_value TEXT,
+    evidence TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_attention_agent_changes_listing
+ON attention_agent_changes(listing_id, created_at);
+
+CREATE TABLE IF NOT EXISTS live_verification_runs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN ('running','completed','failed')),
+    selection TEXT NOT NULL,
+    item_limit INTEGER,
+    api_call_limit INTEGER,
+    api_calls INTEGER NOT NULL DEFAULT 0,
+    rate_delay_seconds REAL NOT NULL DEFAULT 1.5,
+    message TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_live_verification_runs_status
+ON live_verification_runs(status, created_at);
+
+CREATE TABLE IF NOT EXISTS live_verification_items (
+    item_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES live_verification_runs(run_id) ON DELETE CASCADE,
+    listing_id TEXT NOT NULL REFERENCES listings(listing_id) ON DELETE CASCADE,
+    outcome TEXT NOT NULL DEFAULT 'pending',
+    verdict TEXT,
+    fields_in_disagreement TEXT NOT NULL DEFAULT '[]',
+    details TEXT,
+    tier TEXT,
+    api_called INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    checked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, listing_id)
+);
+CREATE INDEX IF NOT EXISTS ix_live_verification_items_queue
+ON live_verification_items(run_id, outcome, created_at);
+CREATE INDEX IF NOT EXISTS ix_live_verification_items_listing
+ON live_verification_items(listing_id, checked_at);

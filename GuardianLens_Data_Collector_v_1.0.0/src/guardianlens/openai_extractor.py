@@ -32,12 +32,14 @@ class OpenAIExtractor:
         source_url: str | None = None,
         visible_text: str | None = None,
         seller_visible_text: str | None = None,
+        captured_at: str | None = None,
     ) -> dict:
         mime = "image/jpeg" if screenshot_path.suffix.lower() in {".jpg", ".jpeg"} else f"image/{screenshot_path.suffix.lower().lstrip('.')}"
         image_b64 = base64.b64encode(screenshot_path.read_bytes()).decode("ascii")
         data_url = f"data:{mime};base64,{image_b64}"
         prompt = build_extraction_prompt(
             platform, page_title, source_url, categories, visible_text, seller_visible_text,
+            captured_at=captured_at,
         )
         response = self.client.responses.create(
             model=self.model,
@@ -81,5 +83,6 @@ class MockExtractor:
         source_url: str | None = None,
         visible_text: str | None = None,
         seller_visible_text: str | None = None,
+        captured_at: str | None = None,
     ) -> dict:
         return normalize_extracted_listing(self.payload)

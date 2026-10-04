@@ -1,0 +1,37 @@
+{% call disclosure("status-counts-heading", "Exact database status counts") %}
+<p>Statuses are shown separately so captures, failures, and duplicates never disappear inside a combined total.</p>
+                        <div class="grid status-grid">
+                            {% for status, label in [
+                                  ('captured','Captured'),('processing','Processing'),('ai_extracted','AI extracted'),('validating','Validating'),
+                                        ('needs_attention','Needs attention'),('ready_for_review','Ready for review'),('under_review','Under review'),
+('approved','Approved'),('rejected','Rejected'),('skipped','Skipped'),('flagged','Flagged'),
+('capture_failed','Capture failed'),('processing_failed','Processing failed'),('ai_failed','AI failed'),
+('image_failed','Image failed'),('duplicate_blocked','Duplicate blocked')
+] %}
+      <article><h3><a href="/records?status={{ status }}">{{ label }}</a></h3><b id="count-{{ status }}">{{ counts.get(status,0) }}</b></article>
+{% endfor %}
+</div>
+{% endcall %}
+
+{% call disclosure("planner-heading", "What should I collect next?") %}
+<p>The planner subtracts approved records and relevant pending workload. Capture a listing manually or supply only the listing URLs you already selected.</p>
+<div class="grid cards" id="recommendations">
+{% for recommendation in plan.recommendations %}
+<article><b>{{ recommendation.platform|title }} → {{ recommendation.category }}</b><small>Estimated remaining {{ recommendation.remaining }}</small></article>
+{% else %}
+<p>Configured targets are currently covered by approved and pending records.</p>
+{% endfor %}
+</div>
+{% endcall %}
+
+{% call disclosure("category-coverage-heading", "Category coverage") %}
+<p><span id="unassignedCategoryPending">{{ plan.unassigned_category_pending }}</span> pending record(s) have no category yet; <span id="unconfiguredCategoryApproved">{{ plan.unconfigured_category_approved }}</span> approved record(s) use a category outside the current configuration.</p>
+<div class="table-scroll"><table><thead><tr><th>Category</th><th>Approved</th><th>Pending</th><th>Target</th><th>Remaining</th></tr></thead><tbody id="categoryRows">{% for category in plan.categories %}<tr><td>{{ category.name }}</td><td>{{ category.approved }}</td><td>{{ category.pending }}</td><td>{{ category.target }}</td><td>{{ category.remaining }}</td></tr>{% endfor %}</tbody></table></div>
+{% endcall %}
+
+{% call disclosure("review-history", "Review timing and estimates") %}
+<div class="grid cards">
+<article><h3>Average review</h3><b id="reviewAverage">{% if review_stats.completed_sessions %}{{ '%.0f'|format(review_stats.average_seconds) }} sec{% else %}Not enough history{% endif %}</b></article>
+<article><h3>Estimated remaining</h3><b id="reviewEstimate">{% if review_stats.completed_sessions %}{{ review_stats.estimated_remaining_seconds // 60 }} min{% else %}Not enough history{% endif %}</b></article>
+</div>
+{% endcall %}

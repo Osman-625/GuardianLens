@@ -9,7 +9,19 @@ OBFUSCATED_EMAIL = re.compile(
     re.I,
 )
 PHONE = re.compile(r"(?<!\d)(?:\+?60|0)[\s.-]?(?:1\d|[3-9]\d)[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?!\d)")
-GENERIC_PHONE = re.compile(r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)")
+# Detection-only (never in PATTERNS / never auto-redacted -- see scrub_text):
+# a loose net for phone-shaped numbers PHONE's rigid Malaysian grouping misses
+# (foreign formats, or a seller spacing every digit like "0 1 2 2 5 8 1 9 3 7"
+# to dodge simple filters), meant to escalate ambiguous cases for a human to
+# judge rather than silently pass or redact them. The bug was that it bounded
+# on character-span length, not actual digit count, so short digit runs
+# padded with '.'/'-' -- a date ("13.4.2026", 7 digits), a year range
+# ("2016-2021", 8 digits), a spec fragment ("1080) - 144", 7 digits) -- were
+# wide enough to match even though no real phone number is 7-8 digits with
+# that padding. Bounding on digit count (9-12, covering local and
+# country-code formats) keeps a bare 10-digit serial or a spaced-out 11-digit
+# number flagged while dates and specs fall under the floor.
+GENERIC_PHONE = re.compile(r"(?<!\d)\+?\d(?:[\s.()-]?\d){8,11}(?!\d)")
 BANK = re.compile(r"\b(?:bank\s*(?:account|acc)|acct|account\s*no\.?)[\s:#-]*[A-Z0-9 -]{6,24}\b", re.I)
 CONTACT_HANDLE = re.compile(r"\b(?:whatsapp|telegram|wechat|contact\s*me|dm\s*me)\b[^\n]{0,80}", re.I)
 CONTACT_LINK = re.compile(r"\b(?:wa\.me|t\.me|api\.whatsapp\.com)/[^\s]+", re.I)

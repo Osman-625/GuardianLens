@@ -1,0 +1,48 @@
+{
+  "record_shape": "one row per (listing_id, annotator_id) pair",
+  "fields": {
+    "listing_id": {
+      "type": "string (uuid)",
+      "required": true,
+      "note": "Foreign key into data/annotation_ready/listings.csv. Pre-filled -- never edit this column."
+    },
+    "annotator_id": {
+      "type": "string",
+      "required": true,
+      "note": "Short handle identifying the human annotator, e.g. 'annotator_A'. Fill in once per template file."
+    },
+    "label": {
+      "type": "enum",
+      "required": true,
+      "values": ["legitimate", "suspicious", "scam_fraud", "insufficient_evidence"],
+      "note": "See annotation/label_definitions.md for the exact criteria for each value."
+    },
+    "confidence": {
+      "type": "int",
+      "range": [1, 5],
+      "required": true,
+      "note": "1 = mostly guessing, 5 = very confident given the available evidence. Precise per-value anchors, tied to the weak/strong/critical signal taxonomy: annotation/guidelines/LABEL_SCHEMA.json's confidence_scale, and annotation/guidelines/DECISION_RULES.md's confidence table."
+    },
+    "evidence_reason": {
+      "type": "string",
+      "required": true,
+      "min_length": 10,
+      "note": "Must cite specific observable evidence (a field value, an image, a seller-behaviour fact) -- not a vibe."
+    },
+    "suspicious_text": {"type": "bool", "required": false},
+    "suspicious_image": {"type": "bool", "required": false},
+    "suspicious_seller_behaviour": {"type": "bool", "required": false},
+    "reused_image_indicator": {
+      "type": "bool",
+      "required": false,
+      "note": "Pre-filled from the independent near-duplicate audit where known (see dataset_validation_report.md); annotators may override if they disagree after visually checking the images."
+    },
+    "price_anomaly_indicator": {"type": "bool", "required": false},
+    "notes": {"type": "string", "required": false},
+    "annotation_timestamp": {"type": "string (ISO8601)", "required": true}
+  },
+  "label_definitions_doc": "annotation/label_definitions.md",
+  "guide_doc": "ANNOTATION_GUIDE.md",
+  "decision_rules_doc": "annotation/guidelines/DECISION_RULES.md",
+  "evidence_rules_doc": "annotation/guidelines/EVIDENCE_RULES.md"
+}

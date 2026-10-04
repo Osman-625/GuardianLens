@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Literal
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 MAX_URL_LENGTH = 4096
 MAX_PAGE_TITLE_LENGTH = 1000
@@ -81,6 +81,39 @@ class ReplayItemUpdate(BaseModel):
     status: str = Field(max_length=40)
     status_message: str | None = Field(default=None, max_length=500)
     listing_id: str | None = Field(default=None, max_length=64)
+    error_type: str | None = Field(default=None, max_length=100)
+    error_message: str | None = Field(default=None, max_length=2000)
+
+
+class SellerRetryPrepareRequest(BaseModel):
+    """Durable pacing policy for one Mudah seller-capture recovery pass."""
+
+    name: str | None = Field(default=None, max_length=200)
+    listing_ids: list[str] | None = Field(default=None, min_length=1, max_length=10000)
+    max_attempts: int = Field(default=3, ge=1, le=5)
+    min_interval_seconds: int = Field(default=90, ge=30, le=3600)
+    jitter_seconds: int = Field(default=60, ge=0, le=1800)
+    backoff_base_seconds: int = Field(default=900, ge=60, le=86400)
+    backoff_max_seconds: int = Field(default=3600, ge=60, le=86400)
+    block_backoff_base_seconds: int = Field(default=900, ge=60, le=86400)
+    block_backoff_max_seconds: int = Field(default=3600, ge=60, le=86400)
+
+    @model_validator(mode="after")
+    def caps_are_not_below_bases(self):
+        if self.backoff_base_seconds > self.backoff_max_seconds:
+            raise ValueError("backoff_base_seconds cannot exceed backoff_max_seconds")
+        if self.block_backoff_base_seconds > self.block_backoff_max_seconds:
+            raise ValueError(
+                "block_backoff_base_seconds cannot exceed block_backoff_max_seconds"
+            )
+        return self
+
+
+class SellerRetryItemUpdate(BaseModel):
+    lease_token: str = Field(min_length=1, max_length=64)
+    status: Literal["opening_seller", "captured", "failed"]
+    seller_url: str | None = Field(default=None, max_length=MAX_URL_LENGTH)
+    status_message: str | None = Field(default=None, max_length=500)
     error_type: str | None = Field(default=None, max_length=100)
     error_message: str | None = Field(default=None, max_length=2000)
 
