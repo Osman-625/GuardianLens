@@ -1,15 +1,56 @@
 # GuardianLens
 
-Multilingual (EN/BM/ZH) marketplace-listing fraud detection, built for an INTI International University final year project. This monorepo holds the five system workspaces. Datasets, images, run outputs, databases and secrets are git-ignored and stay local.
+**Explainable multimodal fraud-risk detection for Malaysian online marketplaces.**
+Final Year Project, INTI International University (Faculty of Data Science and Information Technology), by Osman Abdurahman Maalim.
 
-| Workspace | Purpose |
+## What it is
+
+Malaysian consumer-to-consumer marketplaces leave the buyer alone to judge a listing before paying. GuardianLens is a buyer-facing decision-support tool for **Mudah.my** and **Carousell Malaysia** product listings. It reads a listing's photos, text and seller details, combines three machine-learning signals into a calibrated **0 to 100 risk score** with a **Low / Moderate / High** band, and explains the result in plain language.
+
+It never says "this is fraud" and never tells the buyer to buy or not to buy. It supports a decision; it does not make one.
+
+## How it works
+
+```
+ photos ──► Visual signal (CLIP photo-title consistency, SSCD copy detection) ─┐
+ text   ──► Textual signal (TF-IDF + scam-cue model)                           ├─► out-of-fold fusion ─► calibration ─► score 0-100 + band
+ seller ──► Behavioural signal (XGBoost on price, category ratio, seller fields)┘                                        + SHAP-based explanation
+```
+
+Labels are *annotated risk* (suspicious + scam/fraud), not confirmed fraud.
+
+## Repository layout
+
+The project is a chain of five workspaces, from raw listings to a running app.
+
+| Folder | Role |
 |---|---|
-| `URL_Crawler/` | Collects Carousell and Mudah listing URLs across 12 categories |
-| `GuardianLens_Data_Collector_v_1.0.0/` | FastAPI collector plus Chrome extension that captures listings, screenshots and seller signals |
-| `GuardianLens_Annotation/` | Rule-based weak labelling, annotation guidelines, 3-pass AI + human annotation pipeline |
-| `GuardianLens_Training/` | Text, visual and metadata fusion model training (Colab-ready package, notebooks, evaluation) |
-| `GuardianLens_codebase/` | Application: FastAPI API, Next.js frontend, ML inference package, DB schema |
+| `URL_Crawler/` | Crawls candidate listing URLs from Carousell and Mudah across 12 categories |
+| `GuardianLens_Data_Collector_v_1.0.0/` | Chrome extension plus local FastAPI app that captures listings, screenshots and seller signals, with AI-assisted extraction, privacy scrubbing, duplicate checks and human review |
+| `GuardianLens_Annotation/` | Annotation rubric, rule engine for weak labels, three-pass AI + human annotation pipeline with a kappa gate |
+| `GuardianLens_Training/` | The `gl` package: signals, fusion, calibration, seven-configuration ablation, SHAP, sealed test. Colab-ready |
+| `GuardianLens_codebase/` | The application: Next.js frontend (7 screens), FastAPI `/api/v1`, Supabase migrations, ML bundle contract |
 
-Each workspace has its own README or `docs/` folder with setup and verification steps. Copy `.env.example` to `.env` in the workspaces that have one and fill in your own keys.
+Each workspace has its own README or `docs/` folder with setup and verification steps. Copy `.env.example` to `.env` where one exists and add your own keys.
 
-`GuardianLens_Approved_Dataset/` (approved listings and images) is intentionally not tracked.
+## Results (sealed test, 330 listings, scored once)
+
+| Model | ROC AUC |
+|---|---|
+| Visual only | 0.573 |
+| Textual only | 0.671 |
+| Behavioural only | 0.729 |
+| **Fusion (V + T + B)** | **0.799** (95% CI 0.749 to 0.849) |
+
+Fusion beats the best single signal by +0.071 (95% CI +0.011 to +0.128). The share of listings that are risky rises from 6% in the Low band to 29% in Moderate and 64% in High.
+
+## Honest limits
+
+- Labels are annotated risk from an AI-assisted pipeline, not confirmed fraud. Annotator agreement is moderate (kappa 0.502 on the QA sample, below the project's own 0.61 gate).
+- The textual signal is a TF-IDF + text-cue model. An XLM-RoBERTa fine-tune was attempted but collapsed, so it is not used in the final model.
+- The visual signal is weak, and the test set is small, so confidence intervals are wide.
+- The application in `GuardianLens_codebase/` still runs on **development stubs**, not the trained models. Stub scores must not be read as real results.
+
+## Data
+
+The dataset is **not** in this repository. It holds 2,209 approved listings (1,410 Carousell, 799 Mudah, 12 categories, about 11,000 photos), annotated as 1,625 legitimate, 379 suspicious, 193 scam/fraud and 12 insufficient evidence. Datasets, images, run outputs, databases and secrets are git-ignored and stay local.
