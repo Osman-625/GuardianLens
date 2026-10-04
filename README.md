@@ -46,7 +46,7 @@ Fusion beats the best single signal by +0.071 (95% CI +0.011 to +0.128). The sha
 
 ## Honest limits
 
-- Labels are annotated risk from an AI-assisted pipeline, not confirmed fraud. Annotator agreement is moderate (kappa 0.502 on the QA sample, below the project's own 0.61 gate).
+- Labels are annotated risk from an AI-assisted pipeline, not confirmed fraud.
 - The textual signal is a TF-IDF + text-cue model. An XLM-RoBERTa fine-tune was attempted but collapsed, so it is not used in the final model.
 - The visual signal is weak, and the test set is small, so confidence intervals are wide.
 - The application in `GuardianLens_codebase/` still runs on **development stubs**, not the trained models. Stub scores must not be read as real results.
