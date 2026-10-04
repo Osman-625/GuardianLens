@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "GuardianLens Data Collection",
+  "version": "2.0.0",
+  "description": "Capture the current marketplace listing manually or replay only the listing URLs queued by the local GuardianLens dashboard.",
+  "permissions": ["activeTab", "alarms", "scripting", "storage", "tabs"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://carousell.com.my/*",
+    "https://www.carousell.com.my/*",
+    "https://mudah.my/*",
+    "https://www.mudah.my/*"
+  ],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "popup.html", "default_title": "GuardianLens Capture"}
+}
