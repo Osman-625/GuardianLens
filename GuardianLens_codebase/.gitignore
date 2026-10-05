@@ -40,3 +40,14 @@ Thumbs.db
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Browser extension, shared package, workspaces
+# node_modules and build output are generated; real fixtures hold third-party
+# listing text and must never be committed.
+node_modules/
+extension/.output/
+extension/.wxt/
+extension/fixtures/real/
+extension/playwright-report/
+extension/test-results/
+frontend/public/downloads/
