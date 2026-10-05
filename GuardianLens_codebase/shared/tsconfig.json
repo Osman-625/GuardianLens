@@ -1,0 +1,17 @@
+{
+  // Type-check only: the apps that import this package compile it, so nothing is emitted here.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    // "bundler" resolution understands package "exports" that point at .ts source.
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true
+  },
+  "include": ["src", "tests"]
+}

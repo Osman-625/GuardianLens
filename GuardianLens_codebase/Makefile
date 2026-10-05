@@ -2,18 +2,18 @@
 
 install:
 	python -m pip install -r requirements.txt
-	cd frontend && npm ci
+	npm ci
 
 install-dev:
 	python -m pip install -r requirements-dev.txt
-	cd frontend && npm ci
+	npm ci
 
 api:
 	uvicorn api.main:app --reload --port 8000
 	cd frontend && npm run dev
 
 web:
-	cd frontend && npm run dev
+	npm run dev -w frontend
 
 test:
 	pytest

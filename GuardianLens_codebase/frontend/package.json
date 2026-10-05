@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@guardianlens/shared": "*",
     "next": "16.2.10",
     "react": "19.2.0",
     "react-dom": "19.2.0"
