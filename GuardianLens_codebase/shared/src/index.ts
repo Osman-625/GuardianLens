@@ -3,3 +3,5 @@
 // Add one export line here when a task adds a new public module.
 export * from "./types";
 export * from "./categories";
+export * from "./api";
+export * from "./claim";
