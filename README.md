@@ -5,7 +5,7 @@ Final Year Project, INTI International University (Faculty of Data Science and I
 
 ## What it is
 
-Malaysian consumer-to-consumer marketplaces leave the buyer alone to judge a listing before paying. GuardianLens is a buyer-facing decision-support tool for **Mudah.my** and **Carousell Malaysia** product listings. It reads a listing's photos, text and seller details, combines three machine-learning signals into a calibrated **0 to 100 risk score** with a **Low / Moderate / High** band, and explains the result in plain language.
+Malaysian consumer-to-consumer marketplaces leave the buyer alone to judge a listing before paying. GuardianLens is a buyer-facing decision-support tool for **Mudah.my** and **Carousell Malaysia** product listings. It reads a listing's photos, text and seller details, combines three machine-learning signals into a calibrated **0 to 100 score** (100 is the lowest estimated risk) with a **Low / Moderate / High** risk band, and explains the result in plain language.
 
 It never says "this is fraud" and never tells the buyer to buy or not to buy. It supports a decision; it does not make one.
 
@@ -29,7 +29,7 @@ The project is a chain of five workspaces, from raw listings to a running app.
 | `GuardianLens_Data_Collector_v_1.0.0/` | Chrome extension plus local FastAPI app that captures listings, screenshots and seller signals, with AI-assisted extraction, privacy scrubbing, duplicate checks and human review |
 | `GuardianLens_Annotation/` | Annotation rubric, rule engine for weak labels, three-pass AI + human annotation pipeline with a kappa gate |
 | `GuardianLens_Training/` | The `gl` package: signals, fusion, calibration, seven-configuration ablation, SHAP, sealed test. Colab-ready |
-| `GuardianLens_codebase/` | The application: Next.js frontend (7 screens), FastAPI `/api/v1`, Supabase migrations, ML bundle contract |
+| `GuardianLens_codebase/` | The application: Next.js frontend (7 screens), FastAPI `/api/v1`, SQLite storage, trained-model serving |
 
 Each workspace has its own README or `docs/` folder with setup and verification steps. Copy `.env.example` to `.env` where one exists and add your own keys.
 
