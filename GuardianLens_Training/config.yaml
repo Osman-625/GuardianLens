@@ -35,9 +35,9 @@ signals:
     sscd_url: https://dl.fbaipublicfiles.com/sscd-copy-detection/sscd_disc_mixup.torchscript.pt
     reference_corpus: train       # reference corpus = TRAIN images only (version recorded in the run); same-group images excluded
     include_image_metadata: false # true adds image count/resolution/size to V (strong in exploration, NOT in the methodology)
-  textual:                        # T: XLM-RoBERTa fine-tune (GPU). Needs `gl all --xlmr` / `gl signal T`
+  textual:                        # T: TF-IDF + text cues + logistic regression (CPU). Use `gl all --text-cues`
     enabled: true
-    impl: xlmr                    # xlmr = XLM-R fine-tune (GPU, methodology v1) | cues = TF-IDF + text cues (CPU, methodology v2)
+    impl: cues                    # cues = current TF-IDF + text cues; xlmr = historical GPU experiment
     model: xlm-roberta-base
     max_length: 256
     batch_size: 16

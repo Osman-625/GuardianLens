@@ -1,3 +1,10 @@
+"""Live terminal dashboard for a running crawl (python monitor_progress.py --site mudah).
+
+The crawler (crawler.py) writes three files per run: the collected URL CSV, a per-category summary
+CSV, and a `<summary>.state.json` file describing the run (id, status, paths). This script only
+reads them, redraws a progress table every few seconds, and exits when the run reaches a terminal
+status. Closing it with Ctrl+C never stops the crawl.
+"""
 from __future__ import annotations
 
 import argparse
@@ -10,14 +17,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "output"
+# Category target tables per marketplace; each row carries a soft_target and a full_target.
 DEFAULT_CONFIGS = {
     "carousell": ROOT / "config" / "categories.csv",
     "mudah": ROOT / "config" / "categories_mudah.csv",
 }
+# Run statuses after which the state file will not change again, so the monitor can stop.
 TERMINAL_RUN_STATUSES = {"success", "shortfall", "fatal", "interrupted"}
 
 
 def load_categories(config_path: Path, mode: str) -> list[tuple[str, int]]:
+    """Read the category config as (category, target) pairs; `mode` picks the soft or full target."""
     rows: list[tuple[str, int]] = []
     with config_path.open("r", encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
@@ -27,6 +37,7 @@ def load_categories(config_path: Path, mode: str) -> list[tuple[str, int]]:
 
 
 def load_summary(summary_path: Path) -> dict[str, dict[str, str]]:
+    """Return the crawler's per-category summary rows keyed by category (empty before the first write)."""
     if not summary_path.exists():
         return {}
     with summary_path.open("r", encoding="utf-8", newline="") as f:
@@ -34,16 +45,19 @@ def load_summary(summary_path: Path) -> dict[str, dict[str, str]]:
 
 
 def count_urls(output_path: Path) -> int:
+    """Count non-empty product URLs in the crawler's output CSV; raise if the columns are not the expected three."""
     if not output_path.exists():
         return 0
     with output_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
+        # A different header means this is not a crawler output file (or it is mid-rewrite).
         if reader.fieldnames != ["app", "category", "product_url"]:
             raise ValueError(f"Unexpected URL CSV columns: {reader.fieldnames}")
         return sum(1 for row in reader if row.get("product_url"))
 
 
 def load_run_state(state_path: Path) -> dict[str, object] | None:
+    """Load the run state JSON written by the crawler, or None when no run has started yet."""
     if not state_path.exists():
         return None
     with state_path.open("r", encoding="utf-8") as f:
@@ -62,6 +76,11 @@ def state_matches_run(
     output_path: Path,
     summary_path: Path,
 ) -> bool:
+    """True when a state file describes the run this monitor was asked to watch.
+
+    The site, mode and all three file paths must match, so a stale state file from a different
+    crawl (another site, or the soft run next to a full run) is never mistaken for this one.
+    """
     if state is None or state.get("site") != site or state.get("mode") != mode:
         return False
     expected_paths = {
@@ -79,6 +98,11 @@ def state_matches_run(
 
 
 def render(site: str, categories: list[tuple[str, int]], summary: dict[str, dict[str, str]], total_urls: int, expected_total: int, elapsed: float, interval: float) -> str:
+    """Build the progress table text: one row per category, then a total line.
+
+    Categories missing from the summary are shown as "pending". Error text is cut to 60 characters
+    so a row stays on one terminal line.
+    """
     lines = []
     lines.append(
         f"{site} crawl progress  |  elapsed {elapsed:6.0f}s  |  "
@@ -111,6 +135,7 @@ def render(site: str, categories: list[tuple[str, int]], summary: dict[str, dict
 
 
 def main() -> None:
+    """Parse arguments, then redraw the progress table until the watched run ends or Ctrl+C."""
     parser = argparse.ArgumentParser(description="Live-watch a running crawl.")
     parser.add_argument("--site", choices=tuple(DEFAULT_CONFIGS.keys()), default="carousell")
     parser.add_argument("--mode", choices=("soft", "full"), default="full")
@@ -133,6 +158,8 @@ def main() -> None:
     adopted_run_id: str | None = None
     ignored_run_id: str | None = None
 
+    # A run that is already finished when the monitor starts is remembered as "ignored", so the
+    # monitor waits for the next run instead of showing last run's numbers as if they were live.
     try:
         initial_state = load_run_state(state_path)
     except (OSError, json.JSONDecodeError, ValueError):
@@ -164,6 +191,8 @@ def main() -> None:
                     output_path=output_path,
                     summary_path=summary_path,
                 ):
+                    # Adopt the first matching run that is not the ignored one, and from then on
+                    # follow only that run id so a restarted crawl cannot mix two runs' counts.
                     candidate_run_id = str(candidate.get("run_id") or "")
                     if adopted_run_id is None and candidate_run_id != ignored_run_id:
                         adopted_run_id = candidate_run_id
@@ -172,12 +201,15 @@ def main() -> None:
                     if candidate_run_id == adopted_run_id:
                         active_state = candidate
 
+                # While "starting" the output files may still hold the previous run's rows.
                 if active_state and active_state.get("status") != "starting":
                     summary = load_summary(summary_path)
                     total_urls = count_urls(output_path)
             except (OSError, csv.Error, json.JSONDecodeError, KeyError, ValueError) as exc:
+                # The crawler rewrites these files while we read; show the message and retry next tick.
                 print(f"Waiting for a stable run snapshot: {type(exc).__name__}: {exc}")
             elapsed = time.time() - start
+            # Clear the terminal so each refresh replaces the previous table.
             subprocess.run(["cmd", "/c", "cls"] if os.name == "nt" else ["clear"], check=False)
             print(
                 render(

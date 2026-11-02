@@ -1,38 +1,97 @@
-{% extends "base.html" %}
-{% block title %}Review Queue · GuardianLens{% endblock %}
-{% block content %}
-{% set bucket_qs = ('?bucket=' ~ bucket) if bucket and bucket != 'all' else '' %}
+{% extends "base.html" %} {% block title %}Review Queue · GuardianLens{%
+endblock %} {% block content %} {% set bucket_qs = ('?bucket=' ~ bucket) if
+bucket and bucket != 'all' else '' %}
 <div class="page-heading">
-  <div><p class="eyebrow">Mandatory human control</p><h1 id="reviewQueueHeading" tabindex="-1">Review Queue</h1><p>Verify the private evidence and every extracted field before choosing an outcome.</p></div>
-  <p><b id="reviewQueueCount">{{ total }}</b> open records · <span id="reviewQueueShown">{{ rows|length }}</span> highest-priority shown (maximum {{ limit }})</p>
+  <div>
+    <p class="eyebrow">Mandatory human control</p>
+    <h1 id="reviewQueueHeading" tabindex="-1">Review Queue</h1>
+    <p>
+      Verify the private evidence and every extracted field before choosing an
+      outcome.
+    </p>
+  </div>
+  <p>
+    <b id="reviewQueueCount">{{ total }}</b> open records ·
+    <span id="reviewQueueShown">{{ rows|length }}</span> highest-priority shown
+    (maximum {{ limit }})
+  </p>
 </div>
-{% if flash %}<div class="flash-success" role="status">&check; {{ flash }}</div>{% endif %}
+{% if flash %}
+<div class="flash-success" role="status">&check; {{ flash }}</div>
+{% endif %}
 <span id="token" hidden>{{ token }}</span>
-<nav class="queue-tabs" aria-label="Review queue filter" data-bucket="{{ bucket }}">
-  <a class="queue-tab{% if bucket == 'ready' %} active{% endif %}" href="/review?bucket=ready" aria-current="{% if bucket == 'ready' %}page{% endif %}">Ready for review <span id="tabCountReady">{{ bucket_counts.ready }}</span></a>
-  <a class="queue-tab{% if bucket == 'attention' %} active{% endif %}" href="/review?bucket=attention" aria-current="{% if bucket == 'attention' %}page{% endif %}">Needs attention <span id="tabCountAttention">{{ bucket_counts.attention }}</span></a>
-  <a class="queue-tab{% if bucket == 'other' %} active{% endif %}" href="/review?bucket=other" aria-current="{% if bucket == 'other' %}page{% endif %}">Other <span id="tabCountOther">{{ bucket_counts.other }}</span></a>
-  <a class="queue-tab{% if bucket == 'all' %} active{% endif %}" href="/review" aria-current="{% if bucket == 'all' %}page{% endif %}">All <span id="tabCountAll">{{ bucket_counts.all }}</span></a>
+<nav
+  class="queue-tabs"
+  aria-label="Review queue filter"
+  data-bucket="{{ bucket }}"
+>
+  <a
+    class="queue-tab{% if bucket == 'ready' %} active{% endif %}"
+    href="/review?bucket=ready"
+    aria-current="{% if bucket == 'ready' %}page{% endif %}"
+    >Ready for review
+    <span id="tabCountReady">{{ bucket_counts.ready }}</span></a
+  >
+  <a
+    class="queue-tab{% if bucket == 'attention' %} active{% endif %}"
+    href="/review?bucket=attention"
+    aria-current="{% if bucket == 'attention' %}page{% endif %}"
+    >Needs attention
+    <span id="tabCountAttention">{{ bucket_counts.attention }}</span></a
+  >
+  <a
+    class="queue-tab{% if bucket == 'other' %} active{% endif %}"
+    href="/review?bucket=other"
+    aria-current="{% if bucket == 'other' %}page{% endif %}"
+    >Other <span id="tabCountOther">{{ bucket_counts.other }}</span></a
+  >
+  <a
+    class="queue-tab{% if bucket == 'all' %} active{% endif %}"
+    href="/review"
+    aria-current="{% if bucket == 'all' %}page{% endif %}"
+    >All <span id="tabCountAll">{{ bucket_counts.all }}</span></a
+  >
 </nav>
 <div class="table-scroll">
   <table>
-    <thead><tr><th>Platform</th><th>Listing</th><th>Category</th><th>Price</th><th>Status</th><th><span class="sr-only">Action</span></th></tr></thead>
+    <thead>
+      <tr>
+        <th>Platform</th>
+        <th>Listing</th>
+        <th>Category</th>
+        <th>Price</th>
+        <th>Status</th>
+        <th><span class="sr-only">Action</span></th>
+      </tr>
+    </thead>
     <tbody id="reviewQueueRows">
       {% for row in rows %}
       <tr>
         <td>{{ row.platform|title }}</td>
-        <td><a href="/records/{{ row.listing_id }}">{{ row.title or row.page_title or row.listing_id }}</a></td>
+        <td>
+          <a href="/records/{{ row.listing_id }}"
+            >{{ row.title or row.page_title or row.listing_id }}</a
+          >
+        </td>
         <td>{{ row.category or 'Not extracted' }}</td>
-        <td>{% if row.price is not none %}{{ row.currency or 'Not extracted' }} {{ '%.2f'|format(row.price) }}{% else %}Not extracted{% endif %}</td>
+        <td>
+          {% if row.price is not none %}{{ row.currency or 'Not extracted' }} {{
+          '%.2f'|format(row.price) }}{% else %}Not extracted{% endif %}
+        </td>
         <td><span class="status">{{ row.status }}</span></td>
         <td>
           {% if row.status == 'under_review' %}
-            <a class="button" href="/review/{{ row.listing_id }}{{ bucket_qs }}">Continue</a>
+          <a class="button" href="/review/{{ row.listing_id }}{{ bucket_qs }}"
+            >Continue</a
+          >
           {% else %}
-            <form method="post" action="/review/{{ row.listing_id }}/begin{{ bucket_qs }}">
-              <input type="hidden" name="token" value="{{ token }}">
-              <button type="submit">Begin review</button>
-            </form>
+          <form
+            method="post"
+            action="/review/{{ row.listing_id }}/begin{{ bucket_qs }}"
+          >
+            <input type="hidden" name="token" value="{{ token }}" />
+            <button type="submit">Begin review</button>
+          </form>
           {% endif %}
         </td>
       </tr>
@@ -40,6 +99,9 @@
     </tbody>
   </table>
 </div>
-<p id="reviewQueueEmpty" {% if rows %}hidden{% endif %}>No records are waiting for review. New prepared records will appear automatically.</p>
+<p id="reviewQueueEmpty" {% if rows %}hidden{% endif %}>
+  No records are waiting for review. New prepared records will appear
+  automatically.
+</p>
 <p id="reviewQueueError" class="failure-detail" role="status" hidden></p>
 {% endblock %}

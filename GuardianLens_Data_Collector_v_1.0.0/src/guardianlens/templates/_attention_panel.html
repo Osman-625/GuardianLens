@@ -2,55 +2,218 @@
   <div class="section-heading">
     <div>
       <p class="eyebrow">Evidence-supported repair · Human approval</p>
-      
-      <p>Inspect every matching record, fill missing fields from captured evidence, and see what still needs capture or a human decision.</p>
+
+      <p>
+        Inspect every matching record, fill missing fields from captured
+        evidence, and see what still needs capture or a human decision.
+      </p>
     </div>
-    <span class="status" id="attentionRunStatus">{{ attention.run.status if attention.run else 'idle' }}</span>
+    <span class="status" id="attentionRunStatus"
+      >{{ attention.run.status if attention.run else 'idle' }}</span
+    >
   </div>
   <form id="attentionForm">
     <div class="controls">
-      <label>Platform<select id="attentionPlatform"><option value="">All platforms</option><option value="mudah">Mudah</option><option value="carousell">Carousell</option></select></label>
-      <label>Existing warning<select id="attentionReason"><option value="">All reasons</option><option value="missing_field">Missing field</option><option value="category">Category</option><option value="placeholder_value">Placeholder value</option><option value="pii">Privacy</option><option value="image">Missing images</option><option value="image_skipped">Skipped images</option><option value="duplicate_image">Duplicate image</option><option value="near_duplicate_image">Similar image</option><option value="duplicate_metadata">Duplicate record</option></select></label>
-      <label>Repair record limit<input type="number" id="attentionLimit" min="1" max="10000" step="1" value="25" placeholder="All matching"></label>
-      <label>Time limit (minutes)<input type="number" id="attentionMinutes" min="1" max="720" step="1" value="60" required></label>
-      <label>AI call limit<input type="number" id="attentionApiLimit" min="0" max="10000" step="1" value="25" required></label>
+      <label
+        >Platform<select id="attentionPlatform">
+          <option value="">All platforms</option>
+          <option value="mudah">Mudah</option>
+          <option value="carousell">Carousell</option>
+        </select></label
+      >
+      <label
+        >Existing warning<select id="attentionReason">
+          <option value="">All reasons</option>
+          <option value="missing_field">Missing field</option>
+          <option value="category">Category</option>
+          <option value="placeholder_value">Placeholder value</option>
+          <option value="pii">Privacy</option>
+          <option value="image">Missing images</option>
+          <option value="image_skipped">Skipped images</option>
+          <option value="duplicate_image">Duplicate image</option>
+          <option value="near_duplicate_image">Similar image</option>
+          <option value="duplicate_metadata">Duplicate record</option>
+        </select></label
+      >
+      <label
+        >Repair record limit<input
+          type="number"
+          id="attentionLimit"
+          min="1"
+          max="10000"
+          step="1"
+          value="25"
+          placeholder="All matching"
+      /></label>
+      <label
+        >Time limit (minutes)<input
+          type="number"
+          id="attentionMinutes"
+          min="1"
+          max="720"
+          step="1"
+          value="60"
+          required
+      /></label>
+      <label
+        >AI call limit<input
+          type="number"
+          id="attentionApiLimit"
+          min="0"
+          max="10000"
+          step="1"
+          value="25"
+          required
+      /></label>
     </div>
     <details>
       <summary>Choose exact records</summary>
-      <label>Listing IDs <span class="optional">Optional · one per line or comma-separated</span><textarea id="attentionListingIds" rows="3" maxlength="650000" placeholder="Leave blank to include all matching records"></textarea></label>
+      <label
+        >Listing IDs
+        <span class="optional">Optional · one per line or comma-separated</span
+        ><textarea
+          id="attentionListingIds"
+          rows="3"
+          maxlength="650000"
+          placeholder="Leave blank to include all matching records"
+        ></textarea>
+      </label>
     </details>
-    <label class="attention-watch"><input type="checkbox" id="attentionWatch">Watch for new or changed records within these limits</label>
+    <label class="attention-watch"
+      ><input type="checkbox" id="attentionWatch" />Watch for new or changed
+      records within these limits</label
+    >
     <div class="controls" aria-label="Needs attention agent controls">
-      <button type="submit" id="attentionInspect" value="inspect" class="secondary">Inspect all</button>
-      <button type="submit" id="attentionRepair" value="repair">Start repair</button>
-      <button type="button" data-attention-command="pause" class="secondary" disabled>Pause</button>
-      <button type="button" data-attention-command="resume" class="secondary" disabled>Resume</button>
-      <button type="button" data-attention-command="stop" class="danger" disabled>Stop</button>
+      <button
+        type="submit"
+        id="attentionInspect"
+        value="inspect"
+        class="secondary"
+      >
+        Inspect all
+      </button>
+      <button type="submit" id="attentionRepair" value="repair">
+        Start repair
+      </button>
+      <button
+        type="button"
+        data-attention-command="pause"
+        class="secondary"
+        disabled
+      >
+        Pause
+      </button>
+      <button
+        type="button"
+        data-attention-command="resume"
+        class="secondary"
+        disabled
+      >
+        Resume
+      </button>
+      <button
+        type="button"
+        data-attention-command="stop"
+        class="danger"
+        disabled
+      >
+        Stop
+      </button>
     </div>
   </form>
-  <p class="muted">Inspect all covers every record matching your filters, including records beyond the queue's first 100. Repair starts with 25 records. Records stay subject to final human approval.</p>
-  <p id="attentionNotice" role="status" aria-live="polite">Loading agent status…</p>
+  <p class="muted">
+    Inspect all covers every record matching your filters, including records
+    beyond the queue's first 100. Repair starts with 25 records. Records stay
+    subject to final human approval.
+  </p>
+  <p id="attentionNotice" role="status" aria-live="polite">
+    Loading agent status…
+  </p>
   <p id="attentionError" class="failure-detail" role="alert" hidden></p>
   <div class="grid status-grid" aria-label="Attention agent progress">
-    {% for key, label in [('total','Selected'),('inspected','Inspected'),('changed','Changed'),('ready','Ready for review'),('awaiting_capture','Awaiting capture'),('awaiting_human','Awaiting human'),('failed','Failed'),('skipped','Skipped'),('pending','Pending')] %}
-      <article><h3>{{ label }}</h3><b id="attentionCount-{{ key }}">{{ attention.progress.get(key, 0) if attention.progress else 0 }}</b></article>
+    {% for key, label in
+    [('total','Selected'),('inspected','Inspected'),('changed','Changed'),('ready','Ready
+    for review'),('awaiting_capture','Awaiting
+    capture'),('awaiting_human','Awaiting
+    human'),('failed','Failed'),('skipped','Skipped'),('pending','Pending')] %}
+    <article>
+      <h3>{{ label }}</h3>
+      <b id="attentionCount-{{ key }}"
+        >{{ attention.progress.get(key, 0) if attention.progress else 0 }}</b
+      >
+    </article>
     {% endfor %}
   </div>
   <details>
     <summary>Recent results and next actions</summary>
-    <p class="muted">Recent results are shown here; each record keeps its complete agent history.</p>
-    <div class="table-scroll"><table><thead><tr><th>Record</th><th>Outcome</th><th>Findings and next action</th><th>Changes</th></tr></thead><tbody id="attentionItemRows"><tr><td colspan="4">No inspection results loaded.</td></tr></tbody></table></div>
+    <p class="muted">
+      Recent results are shown here; each record keeps its complete agent
+      history.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Record</th>
+            <th>Outcome</th>
+            <th>Findings and next action</th>
+            <th>Changes</th>
+          </tr>
+        </thead>
+        <tbody id="attentionItemRows">
+          <tr>
+            <td colspan="4">No inspection results loaded.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </details>
   <div class="attention-recovery">
     <h3>Recover missing Mudah seller captures</h3>
-    <p class="muted">Keep Chrome open with the GuardianLens extension connected. Recovery visits only eligible seller pages identified by this completed run, using the existing pacing and retry limits.</p>
+    <p class="muted">
+      Keep Chrome open with the GuardianLens extension connected. Recovery
+      visits only eligible seller pages identified by this completed run, using
+      the existing pacing and retry limits.
+    </p>
     <div class="controls">
-      <button type="button" id="attentionRecoverSellers" class="secondary" disabled>Run seller recovery</button>
-      <button type="button" data-attention-recovery-command="pause" class="secondary" disabled>Pause recovery</button>
-      <button type="button" data-attention-recovery-command="resume" class="secondary" disabled>Resume recovery</button>
-      <button type="button" data-attention-recovery-command="stop" class="danger" disabled>Stop recovery</button>
-      <button type="button" id="attentionProcessRecovered" disabled>Process recovered seller evidence</button>
+      <button
+        type="button"
+        id="attentionRecoverSellers"
+        class="secondary"
+        disabled
+      >
+        Run seller recovery
+      </button>
+      <button
+        type="button"
+        data-attention-recovery-command="pause"
+        class="secondary"
+        disabled
+      >
+        Pause recovery
+      </button>
+      <button
+        type="button"
+        data-attention-recovery-command="resume"
+        class="secondary"
+        disabled
+      >
+        Resume recovery
+      </button>
+      <button
+        type="button"
+        data-attention-recovery-command="stop"
+        class="danger"
+        disabled
+      >
+        Stop recovery
+      </button>
+      <button type="button" id="attentionProcessRecovered" disabled>
+        Process recovered seller evidence
+      </button>
     </div>
-    <p id="attentionRecoveryNotice" role="status" aria-live="polite">Loading seller recovery status…</p>
+    <p id="attentionRecoveryNotice" role="status" aria-live="polite">
+      Loading seller recovery status…
+    </p>
   </div>
 </div>

@@ -3,19 +3,26 @@
     <div>
       <p class="eyebrow">Two inputs · One capture pipeline</p>
       <h2 id="collection-heading">Data collection</h2>
-      <p>Import your selected URLs or capture a listing with the extension, then process and review the results.</p>
+      <p>
+        Import your selected URLs or capture a listing with the extension, then
+        process and review the results.
+      </p>
     </div>
-    
   </div>
 
-  {% call disclosure("collection-inputs", "Add listings · CSV or manual capture", opened=not replay.batch) %}
+  {% call disclosure("collection-inputs", "Add listings · CSV or manual
+  capture", opened=not replay.batch) %}
   <div class="collection-modes">
     <article class="collection-mode manual-mode">
       <div class="mode-number" aria-hidden="true">01</div>
       <div>
         <p class="eyebrow">Manual capture</p>
         <h3>Keep using the extension</h3>
-        <p>Open one Carousell or Mudah listing yourself, then use <b>Capture Current Listing</b>. Open its seller page and use <b>Capture Seller Behaviour</b> when you want the fully manual path.</p>
+        <p>
+          Open one Carousell or Mudah listing yourself, then use
+          <b>Capture Current Listing</b>. Open its seller page and use
+          <b>Capture Seller Behaviour</b> when you want the fully manual path.
+        </p>
         <ol class="compact-steps">
           <li>Open the listing in Chrome</li>
           <li>Click the GuardianLens extension</li>
@@ -29,15 +36,46 @@
       <div>
         <p class="eyebrow">CSV batch replay</p>
         <h3>Upload a prepared URL list</h3>
-        <p>GuardianLens first validates and captures only the rows in your file. After that pass finishes, you start pictures and preprocessing in controlled runs.</p>
-        <form id="csvImportForm" class="import-form" enctype="multipart/form-data">
-          <label>Batch name <span class="optional">Optional</span><input id="csvBatchName" name="batch_name" type="text" maxlength="120" placeholder="Carousell full batch"></label>
+        <p>
+          GuardianLens first validates and captures only the rows in your file.
+          After that pass finishes, you start pictures and preprocessing in
+          controlled runs.
+        </p>
+        <form
+          id="csvImportForm"
+          class="import-form"
+          enctype="multipart/form-data"
+        >
+          <label
+            >Batch name <span class="optional">Optional</span
+            ><input
+              id="csvBatchName"
+              name="batch_name"
+              type="text"
+              maxlength="120"
+              placeholder="Carousell full batch"
+          /></label>
           <label class="upload-zone" id="csvDropZone">
             <span class="upload-mark" aria-hidden="true">CSV</span>
-            <span><b>Choose or drop a CSV</b><small>url, source_url, listing_url, or product_url · maximum {{ '{:,}'.format(csv_import_max_rows) }} rows</small></span>
-            <input id="csvFile" name="file" type="file" accept=".csv,text/csv" required>
+            <span
+              ><b>Choose or drop a CSV</b
+              ><small
+                >url, source_url, listing_url, or product_url · maximum {{
+                '{:,}'.format(csv_import_max_rows) }} rows</small
+              ></span
+            >
+            <input
+              id="csvFile"
+              name="file"
+              type="file"
+              accept=".csv,text/csv"
+              required
+            />
           </label>
-          <div class="import-file-row"><span id="csvFileName">No file selected</span><button type="submit" id="csvImportButton">Import CSV</button></div>
+          <div class="import-file-row">
+            <span id="csvFileName">No file selected</span
+            ><button type="submit" id="csvImportButton">Import CSV</button>
+          </div>
         </form>
       </div>
     </article>
@@ -46,86 +84,296 @@
   <details class="manual-url-panel">
     <summary>Prefer manual URL input? Paste URLs instead</summary>
     <form id="manualImportForm" class="import-form">
-      <label>Batch name <span class="optional">Optional</span><input id="manualBatchName" name="batch_name" type="text" maxlength="120" placeholder="Hand-picked listings"></label>
-      <label>Listing URLs <span class="optional">One URL per line</span><textarea id="manualUrls" name="manual_urls" rows="6" placeholder="https://www.carousell.com.my/p/example-123456/&#10;https://www.mudah.my/example-654321.htm" required></textarea></label>
-      <div class="actions"><button type="submit" id="manualImportButton">Import pasted URLs</button><span class="muted">The browser runner uses exactly these URLs.</span></div>
+      <label
+        >Batch name <span class="optional">Optional</span
+        ><input
+          id="manualBatchName"
+          name="batch_name"
+          type="text"
+          maxlength="120"
+          placeholder="Hand-picked listings"
+      /></label>
+      <label
+        >Listing URLs <span class="optional">One URL per line</span
+        ><textarea
+          id="manualUrls"
+          name="manual_urls"
+          rows="6"
+          placeholder="https://www.carousell.com.my/p/example-123456/&#10;https://www.mudah.my/example-654321.htm"
+          required
+        ></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit" id="manualImportButton">Import pasted URLs</button
+        ><span class="muted">The browser runner uses exactly these URLs.</span>
+      </div>
     </form>
   </details>
 
   {% endcall %}
 
-  <div id="replayNotice" class="collection-notice" role="status" aria-live="polite">{% if replay.batch %}Latest batch loaded: {{ replay.batch.name }}{% else %}Import a CSV or paste URLs to create a durable queue.{% endif %}</div>
+  <div
+    id="replayNotice"
+    class="collection-notice"
+    role="status"
+    aria-live="polite"
+  >
+    {% if replay.batch %}Latest batch loaded: {{ replay.batch.name }}{% else
+    %}Import a CSV or paste URLs to create a durable queue.{% endif %}
+  </div>
 
-  <div class="replay-workspace{% if not replay.batch %} is-empty{% endif %}" id="replayWorkspace">
+  <div
+    class="replay-workspace{% if not replay.batch %} is-empty{% endif %}"
+    id="replayWorkspace"
+  >
     <div class="replay-heading">
       <div>
         <p class="eyebrow">Current replay batch</p>
-        <h3 id="replayBatchName">{% if replay.batch %}{{ replay.batch.name }}{% else %}No batch imported{% endif %}</h3>
-        <p class="muted" id="replayBatchMeta">{% if replay.batch %}{{ replay.batch.original_filename or 'Pasted URLs' }} · {{ replay.batch.status }}{% else %}Import a source above to begin.{% endif %}</p>
+        <h3 id="replayBatchName">
+          {% if replay.batch %}{{ replay.batch.name }}{% else %}No batch
+          imported{% endif %}
+        </h3>
+        <p class="muted" id="replayBatchMeta">
+          {% if replay.batch %}{{ replay.batch.original_filename or 'Pasted
+          URLs' }} · {{ replay.batch.status }}{% else %}Import a source above to
+          begin.{% endif %}
+        </p>
       </div>
-      <span class="status status-large" id="replayBatchStatus">{% if replay.batch %}{{ replay.batch.status }}{% else %}idle{% endif %}</span>
+      <span class="status status-large" id="replayBatchStatus"
+        >{% if replay.batch %}{{ replay.batch.status }}{% else %}idle{% endif
+        %}</span
+      >
     </div>
 
     {% call disclosure("replay-source", "Prepared source file") %}
     <div class="stage-file-panel" id="replayStageFilePanel">
       <div>
         <p class="eyebrow">Stage 1 · Prepared URL file</p>
-        <b id="replayStageFileState">{% if replay.stage_file and replay.stage_file.exists %}Ready to inspect{% else %}Waiting for import{% endif %}</b>
-        <code id="replayStageFilePath">{% if replay.stage_file %}{{ replay.stage_file.relative_path }}{% else %}A validated CSV will be created after import.{% endif %}</code>
-        <small>View-only source manifest. Capture verifies this file against the SQLite queue before opening any URL.</small>
+        <b id="replayStageFileState"
+          >{% if replay.stage_file and replay.stage_file.exists %}Ready to
+          inspect{% else %}Waiting for import{% endif %}</b
+        >
+        <code id="replayStageFilePath"
+          >{% if replay.stage_file %}{{ replay.stage_file.relative_path }}{%
+          else %}A validated CSV will be created after import.{% endif %}</code
+        >
+        <small
+          >View-only source manifest. Capture verifies this file against the
+          SQLite queue before opening any URL.</small
+        >
       </div>
       <div class="actions stage-file-actions">
-        <a class="button secondary" id="replayStageFileView" href="{% if replay.stage_file %}{{ replay.stage_file.view_url }}{% else %}#{% endif %}" target="_blank" rel="noreferrer"{% if not replay.stage_file or not replay.stage_file.exists %} hidden{% endif %}>Open CSV</a>
-        <a class="button" id="replayStageFileDownload" href="{% if replay.stage_file %}{{ replay.stage_file.download_url }}{% else %}#{% endif %}"{% if not replay.stage_file or not replay.stage_file.exists %} hidden{% endif %}>Download CSV</a>
+        <a
+          class="button secondary"
+          id="replayStageFileView"
+          href="{% if replay.stage_file %}{{ replay.stage_file.view_url }}{% else %}#{% endif %}"
+          target="_blank"
+          rel="noreferrer"
+          {%
+          if
+          not
+          replay.stage_file
+          or
+          not
+          replay.stage_file.exists
+          %}
+          hidden{%
+          endif
+          %}
+          >Open CSV</a
+        >
+        <a
+          class="button"
+          id="replayStageFileDownload"
+          href="{% if replay.stage_file %}{{ replay.stage_file.download_url }}{% else %}#{% endif %}"
+          {%
+          if
+          not
+          replay.stage_file
+          or
+          not
+          replay.stage_file.exists
+          %}
+          hidden{%
+          endif
+          %}
+          >Download CSV</a
+        >
       </div>
     </div>
 
     {% endcall %}
 
     <div class="controls replay-controls" aria-label="CSV replay controls">
-      <button type="button" id="replayStart" disabled data-replay-command="start">Start capture pass from Stage 1 file</button>
-      <button type="button" class="secondary" disabled data-replay-command="pause">Pause</button>
-      <button type="button" class="secondary" disabled data-replay-command="resume">Resume</button>
-      <button type="button" class="danger" disabled data-replay-command="stop">Stop</button>
-      <button type="button" class="secondary" disabled data-replay-command="retry-failed">Retry capture failures</button>
+      <button
+        type="button"
+        id="replayStart"
+        disabled
+        data-replay-command="start"
+      >
+        Start capture pass from Stage 1 file
+      </button>
+      <button
+        type="button"
+        class="secondary"
+        disabled
+        data-replay-command="pause"
+      >
+        Pause
+      </button>
+      <button
+        type="button"
+        class="secondary"
+        disabled
+        data-replay-command="resume"
+      >
+        Resume
+      </button>
+      <button type="button" class="danger" disabled data-replay-command="stop">
+        Stop
+      </button>
+      <button
+        type="button"
+        class="secondary"
+        disabled
+        data-replay-command="retry-failed"
+      >
+        Retry capture failures
+      </button>
     </div>
-    <p class="muted">Once URL capture finishes, this batch's captured records join the single queue in the <a href="#batch-heading">Batch processor</a> below.</p>
+    <p class="muted">
+      Once URL capture finishes, this batch's captured records join the single
+      queue in the <a href="#batch-heading">Batch processor</a> below.
+    </p>
 
-    <div class="progress-track replay-progress" role="progressbar" aria-label="CSV replay progress" aria-valuemin="0" aria-valuemax="100" ><div id="replayProgressFill" class="progress-fill"></div></div>
-    <p id="replayProgressLabel" class="muted" aria-live="polite">Loading stored status…</p>
+    <div
+      class="progress-track replay-progress"
+      role="progressbar"
+      aria-label="CSV replay progress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <div id="replayProgressFill" class="progress-fill"></div>
+    </div>
+    <p id="replayProgressLabel" class="muted" aria-live="polite">
+      Loading stored status…
+    </p>
 
-    {% call disclosure("replay-details", "Capture stages and detailed counts") %}
+    {% call disclosure("replay-details", "Capture stages and detailed counts")
+    %}
     <div class="phase-rail" aria-label="Three-stage replay progress">
       <article class="phase-card" id="stagingPhaseCard">
         <span class="phase-index" aria-hidden="true">1</span>
-        <div><p class="eyebrow">Prepared URL file</p><b id="stagingPhaseState">Loading stored status…</b><small id="stagingPhaseDetail">Import, normalize, and validate URLs into a viewable file.</small></div>
+        <div>
+          <p class="eyebrow">Prepared URL file</p>
+          <b id="stagingPhaseState">Loading stored status…</b
+          ><small id="stagingPhaseDetail"
+            >Import, normalize, and validate URLs into a viewable file.</small
+          >
+        </div>
       </article>
       <article class="phase-card" id="capturePhaseCard">
         <span class="phase-index" aria-hidden="true">2</span>
-        <div><p class="eyebrow">URL capture</p><b id="capturePhaseState">Loading stored status…</b><small id="capturePhaseDetail">Validate and capture each queued URL once.</small></div>
+        <div>
+          <p class="eyebrow">URL capture</p>
+          <b id="capturePhaseState">Loading stored status…</b
+          ><small id="capturePhaseDetail"
+            >Validate and capture each queued URL once.</small
+          >
+        </div>
       </article>
       <article class="phase-card" id="processingPhaseCard">
         <span class="phase-index" aria-hidden="true">3</span>
-        <div><p class="eyebrow">Pictures + preprocessing</p><b id="processingPhaseState">Loading stored status…</b><small id="processingPhaseDetail">Starts only after the capture pass finishes.</small></div>
+        <div>
+          <p class="eyebrow">Pictures + preprocessing</p>
+          <b id="processingPhaseState">Loading stored status…</b
+          ><small id="processingPhaseDetail"
+            >Starts only after the capture pass finishes.</small
+          >
+        </div>
       </article>
     </div>
 
-
-
     <div class="grid replay-metrics" aria-label="Import and batch counts">
-      <article><h3>Rows</h3><b id="rRows">{{ replay.import_summary.rows if replay.batch else 0 }}</b></article>
-      <article><h3>Valid URLs</h3><b id="rValid">{{ replay.import_summary.valid_urls if replay.batch else 0 }}</b></article>
-      <article><h3>Invalid</h3><b id="rInvalid">{{ replay.import_summary.invalid_rows if replay.batch else 0 }}</b></article>
-      <article><h3>In-file duplicates</h3><b id="rImportDuplicates">{{ replay.import_summary.duplicates_in_import if replay.batch else 0 }}</b></article>
-      <article><h3>Already captured</h3><b id="rAlreadyCaptured">{{ replay.import_summary.already_captured if replay.batch else 0 }}</b></article>
-      <article><h3>Queued</h3><b id="rQueued">{{ replay.import_summary.queued if replay.batch else 0 }}</b></article>
-      <article><h3>Captured</h3><b id="rCaptured">{{ replay.progress.captured if replay.batch else 0 }}</b></article>
-      <article><h3>Capture failures</h3><b id="rFailed">{{ replay.progress.failed if replay.batch else 0 }}</b><small>No automatic retries</small></article>
-      <article><h3>Blocked</h3><b id="rBlocked">{{ replay.progress.blocked if replay.batch else 0 }}</b></article>
-      <article><h3>Capture remaining</h3><b id="rRemaining">{{ replay.progress.remaining if replay.batch else 0 }}</b></article>
-      <article><h3>Ready to preprocess</h3><b id="rProcessingQueued">{{ replay.processing.queued if replay.batch else 0 }}</b></article>
-      <article><h3>Preprocessed</h3><b id="rProcessingResolved">{{ replay.processing.resolved if replay.batch else 0 }}</b></article>
-      <article><h3>Processing failures</h3><b id="rProcessingFailed">{{ replay.processing.failed if replay.batch else 0 }}</b><small>Retry after the run</small></article>
+      <article>
+        <h3>Rows</h3>
+        <b id="rRows"
+          >{{ replay.import_summary.rows if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Valid URLs</h3>
+        <b id="rValid"
+          >{{ replay.import_summary.valid_urls if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Invalid</h3>
+        <b id="rInvalid"
+          >{{ replay.import_summary.invalid_rows if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>In-file duplicates</h3>
+        <b id="rImportDuplicates"
+          >{{ replay.import_summary.duplicates_in_import if replay.batch else 0
+          }}</b
+        >
+      </article>
+      <article>
+        <h3>Already captured</h3>
+        <b id="rAlreadyCaptured"
+          >{{ replay.import_summary.already_captured if replay.batch else 0
+          }}</b
+        >
+      </article>
+      <article>
+        <h3>Queued</h3>
+        <b id="rQueued"
+          >{{ replay.import_summary.queued if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Captured</h3>
+        <b id="rCaptured"
+          >{{ replay.progress.captured if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Capture failures</h3>
+        <b id="rFailed">{{ replay.progress.failed if replay.batch else 0 }}</b
+        ><small>No automatic retries</small>
+      </article>
+      <article>
+        <h3>Blocked</h3>
+        <b id="rBlocked"
+          >{{ replay.progress.blocked if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Capture remaining</h3>
+        <b id="rRemaining"
+          >{{ replay.progress.remaining if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Ready to preprocess</h3>
+        <b id="rProcessingQueued"
+          >{{ replay.processing.queued if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Preprocessed</h3>
+        <b id="rProcessingResolved"
+          >{{ replay.processing.resolved if replay.batch else 0 }}</b
+        >
+      </article>
+      <article>
+        <h3>Processing failures</h3>
+        <b id="rProcessingFailed"
+          >{{ replay.processing.failed if replay.batch else 0 }}</b
+        ><small>Retry after the run</small>
+      </article>
     </div>
 
     {% endcall %}
@@ -135,13 +383,41 @@
       <div>
         <p class="eyebrow">Current capture</p>
         <b id="replayCurrentCategory">Loading stored status…</b>
-        <a id="replayCurrentUrl" class="current-url" href="#" rel="noreferrer" target="_blank" hidden></a>
-        <span id="replayCurrentStatus" class="muted">Loading stored status…</span>
+        <a
+          id="replayCurrentUrl"
+          class="current-url"
+          href="#"
+          rel="noreferrer"
+          target="_blank"
+          hidden
+        ></a>
+        <span id="replayCurrentStatus" class="muted"
+          >Loading stored status…</span
+        >
       </div>
     </div>
 
     {% call disclosure("replay-log", "Recent capture checkpoint log") %}
-      <div class="table-scroll"><table><thead><tr><th>Row</th><th>Platform</th><th>URL</th><th>Result</th><th>Detail</th><th>Attempt</th><th>Finished</th></tr></thead><tbody id="replayAttemptRows"><tr><td colspan="7">Loading stored capture attempts…</td></tr></tbody></table></div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Row</th>
+            <th>Platform</th>
+            <th>URL</th>
+            <th>Result</th>
+            <th>Detail</th>
+            <th>Attempt</th>
+            <th>Finished</th>
+          </tr>
+        </thead>
+        <tbody id="replayAttemptRows">
+          <tr>
+            <td colspan="7">Loading stored capture attempts…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     {% endcall %}
   </div>
 </section>
