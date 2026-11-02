@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm --prefix ../extension run package:site",
     "build": "next build",
     "start": "next start",
+    "test": "vitest run",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "16.2.10",
+    "@guardianlens/shared": "*",
+    "next": "16.4.3",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
@@ -19,7 +22,7 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "9.39.1",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.4.3",
     "typescript": "5.9.3"
   }
 }

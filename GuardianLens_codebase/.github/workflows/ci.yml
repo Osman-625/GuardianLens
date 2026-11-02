@@ -1,10 +1,22 @@
+# Continuous integration: every push and pull request runs the checks below, so a change cannot
+# reach a branch with a failing test, a lint error, a type error or a known vulnerability. Two
+# independent jobs run side by side: the Python API (backend) and the JavaScript workspaces
+# (frontend: shared package, extension and website).
 name: ci
 
 on:
   push:
   pull_request:
 
+# The jobs only read the code, so the job token gets no more than that.
+permissions:
+  contents: read
+
+# CI installs the API's pinned test dependencies from pyproject.toml with pip (the dev extra, no
+# model packages). Local development uses the conda environment in environment.yml instead.
 jobs:
+  # The Python side: lint, type-check, run the tests, scan the pinned dependencies for known
+  # vulnerabilities, then the secret scan and the prose check.
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -12,13 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -r requirements-dev.txt
-      - run: ruff check api ml scripts
-      - run: mypy api ml/src/guardianlens_ml
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check api scripts
+      - run: mypy api
       - run: pytest -q
+      - run: python -m pip install pip-audit && pip-audit .
       - run: python scripts/secret_scan.py
       - run: python scripts/check_prose.py
 
+  # The JavaScript side (shared package, extension, website): lint, format, type-check, test,
+  # scan the shipped dependencies for known vulnerabilities, and build.
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -26,11 +41,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
-        working-directory: frontend
+      # One install at the repository root covers the shared, extension, and frontend workspaces.
+      - run: npm ci
       - run: npm run lint
-        working-directory: frontend
+      - run: npm run format:check
       - run: npm run typecheck
-        working-directory: frontend
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run build
-        working-directory: frontend

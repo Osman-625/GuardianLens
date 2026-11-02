@@ -1,29 +1,34 @@
+# Shortcuts for the commands used most while developing. `make check` is the quick local gate
+# (lint, types, tests, secret scan); the full list of gates, including the website build and the
+# browser tests, is in README.md and in .github/workflows/ci.yml.
 .PHONY: install install-dev api web test lint typecheck secret-scan check
 
 install:
-	python -m pip install -r requirements.txt
-	cd frontend && npm ci
+	python -m pip install -e .
+	npm ci
 
 install-dev:
-	python -m pip install -r requirements-dev.txt
-	cd frontend && npm ci
+	python -m pip install -e ".[dev]"
+	npm ci
 
+# Run these from a terminal where the conda environment is active (conda activate Guardianlens_venv).
+# --host localhost listens on IPv6 and IPv4. The default (IPv4 only) made every new connection from
+# a browser wait about 2 s on Windows, where "localhost" resolves to IPv6 first.
 api:
-	uvicorn api.main:app --reload --port 8000
-	cd frontend && npm run dev
+	uvicorn api.main:app --reload --reload-dir api --host localhost --port 8000
 
 web:
-	cd frontend && npm run dev
+	npm run dev -w frontend
 
 test:
 	pytest
 
 lint:
-	ruff check api ml scripts
+	ruff check api scripts
 	cd frontend && npm run lint
 
 typecheck:
-	mypy api ml/src/guardianlens_ml
+	mypy api
 	cd frontend && npm run typecheck
 
 secret-scan:

@@ -1,0 +1,4 @@
+# Line endings: text files are stored with LF in the repository and checked out with LF, which is
+# what Prettier writes (see .prettierrc.json). This stops Windows' autocrlf from rewriting files
+# and from producing "LF will be replaced by CRLF" warnings or whole-file diffs.
+* text=auto eol=lf

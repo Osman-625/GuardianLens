@@ -1,0 +1,26 @@
+# Generated output and installed packages
+node_modules/
+.next/
+.wxt/
+extension/.output/
+extension/playwright-report/
+extension/test-results/
+frontend/public/downloads/
+.tmp/
+.claude/
+
+# Lock file (written by npm, never by hand)
+package-lock.json
+
+# Recorded third-party pages and supplied reference material are kept byte for byte
+extension/fixtures/
+docs/spec/
+research/
+
+# Prettier covers the JavaScript, TypeScript, CSS and JSON sources; prose and Python are formatted
+# by their own tools, and Markdown is checked by scripts/check_prose.py.
+*.md
+*.py
+*.sql
+*.csv
+*.html

@@ -1,3 +1,6 @@
+# The development stubs for the three signals (visual, textual, behavioural), plus the common
+# output type the trained models also return. The stubs are simple rules that exercise the
+# interface; their scores are never model results and never research evidence.
 from __future__ import annotations
 
 import time
@@ -9,6 +12,8 @@ from api.schemas import SignalName, SignalReason
 
 @dataclass(slots=True)
 class SignalOutput:
+    """What one signal reports: a probability (None if unavailable), wording, and reasons."""
+
     signal: SignalName
     probability: float | None
     available: bool
@@ -20,6 +25,7 @@ class SignalOutput:
 
 
 def _bounded(value: float) -> float:
+    """Keeps a stub probability between 0.01 and 0.99, so a stub never claims certainty."""
     return min(0.99, max(0.01, value))
 
 
@@ -54,7 +60,7 @@ def run_visual_stub(images: list[ImageInput]) -> SignalOutput:
             SignalReason(
                 feature_key="dev_image_baseline",
                 direction="lowers",
-                display_text="No basic upload-quality warning was found by the development stub.",
+                display_text="No basic photo-quality warning was found in test mode.",
                 rank=1,
             )
         )
@@ -63,11 +69,11 @@ def run_visual_stub(images: list[ImageInput]) -> SignalOutput:
         probability=probability,
         available=True,
         status_word="development check",
-        summary="Image upload checks completed. CLIP and SSCD are not loaded in stub mode.",
+        summary="Basic photo checks completed in test mode.",
         reasons=reasons,
         scope_note=(
-            "Reference-image matching in the final system is limited to the project's approved "
-            "reference set. This development stub performs no corpus matching."
+            "The real system compares photos only with a fixed set of reference images. "
+            "Test mode does no matching."
         ),
         latency_ms=round((time.perf_counter() - started) * 1000),
     )
@@ -98,9 +104,7 @@ def run_textual_stub(title: str, description: str) -> SignalOutput:
             SignalReason(
                 feature_key=f"dev_phrase_{phrase.replace(' ', '_')}",
                 direction="raises",
-                display_text=(
-                    f'The development stub found the phrase "{phrase}" in the listing text.'
-                ),
+                display_text=(f'Test mode found the phrase "{phrase}" in the listing text.'),
                 rank=rank,
             )
         )
@@ -109,7 +113,7 @@ def run_textual_stub(title: str, description: str) -> SignalOutput:
             SignalReason(
                 feature_key="dev_text_baseline",
                 direction="lowers",
-                display_text="No phrase from the small development warning list was found.",
+                display_text="No phrase from the small test-mode warning list was found.",
                 rank=1,
             )
         )
@@ -118,7 +122,7 @@ def run_textual_stub(title: str, description: str) -> SignalOutput:
         probability=probability,
         available=True,
         status_word="development check",
-        summary="Text contract checks completed. XLM-RoBERTa is not loaded in stub mode.",
+        summary=("Basic wording checks completed in test mode."),
         reasons=reasons,
         latency_ms=round((time.perf_counter() - started) * 1000),
     )
@@ -195,7 +199,7 @@ def run_behavioural_stub(seller: SellerInput, price: float) -> SignalOutput:
             SignalReason(
                 feature_key="dev_behavioural_baseline",
                 direction="lowers",
-                display_text="No basic seller-field warning was found by the development stub.",
+                display_text="No basic seller-field warning was found in test mode.",
                 rank=1,
             )
         )

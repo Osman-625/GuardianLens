@@ -1,0 +1,12 @@
+{
+  // WXT generates .wxt/tsconfig.json (path aliases such as "@/", auto-imported globals like
+  // defineBackground, and the browser API types). `npm install` and `npm run typecheck` refresh it.
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true
+  },
+  // fixtures/ holds recorded HTML and a console script, not TypeScript.
+  "exclude": ["node_modules", ".output", "fixtures"]
+}

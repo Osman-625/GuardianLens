@@ -1,3 +1,6 @@
+# Packaging and tool settings for the Python API (api/). Dependencies are pinned exactly so every
+# machine and CI run the same versions; optional extras add the trained-model packages. The
+# JavaScript side is configured in package.json at the repository root.
 [build-system]
 requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
@@ -5,36 +8,49 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "guardianlens-api"
 version = "0.1.0"
-description = "GuardianLens FYP2 FastAPI service scaffold"
+description = "GuardianLens API: explainable fraud-risk checks for Mudah.my and Carousell listings"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "fastapi==0.128.2",
+  "fastapi==0.143.0",
+  # FastAPI does not force a new enough Starlette; versions before 1.3.1 have known advisories.
+  "starlette==1.7.0",
   "uvicorn[standard]==0.48.0",
   "pydantic==2.13.4",
-  "pydantic-settings==2.14.1",
-  "python-multipart==0.0.29",
-  "pillow==12.2.0",
-  "httpx==0.28.1",
+  "pydantic-settings==2.15.0",
+  "python-multipart==0.0.32",
+  "pillow==12.3.0",
 ]
 
 [project.optional-dependencies]
+trained = [
+  "numpy==2.1.3",
+  "pandas==2.2.3",
+  "scikit-learn==1.6.1",
+  "joblib>=1.4,<2",
+  "scipy>=1.14,<2",
+  "xgboost==3.4.1",
+  "pyyaml>=6.0,<7",
+]
+visual = ["torch>=2.3", "transformers>=4.44,<6"]
 dev = [
-  "pytest==9.0.2",
+  # The test client of starlette 1.7 and the scripts both use httpx2 (httpx is deprecated there).
+  "httpx2==2.13.1",
+  "pytest==9.1.1",
   "pytest-asyncio==1.3.0",
   "mypy==1.19.1",
   "ruff==0.14.11",
 ]
-supabase = [
-  "supabase==2.31.0",
-]
 
 [tool.setuptools.packages.find]
-include = ["api*", "ml.src.guardianlens_ml*"]
+include = ["api*"]
 
+# Tests: every API test lives in api/tests and the output is kept short.
 [tool.pytest.ini_options]
-testpaths = ["api/tests", "ml/tests"]
+testpaths = ["api/tests"]
 addopts = "-q"
 
+# Style and bug checks: pycodestyle and pyflakes (E, F), import order (I), bugbear (B), pyupgrade
+# (UP) and simplifications (SIM), at the same 100-column width as the TypeScript code.
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -42,8 +58,15 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
+# Type checking: strict for the whole api package.
 [tool.mypy]
 python_version = "3.12"
 strict = true
 warn_unused_ignores = true
-exclude = ["ml/notebooks"]
+
+# The training workspace (gl.*) is put on sys.path at run time and has no type stubs, and
+# scikit-learn ships without them. The trained-model tests import both, so mypy is told to accept
+# them as untyped instead of failing the whole check on every run.
+[[tool.mypy.overrides]]
+module = ["gl", "gl.*", "sklearn", "sklearn.*"]
+ignore_missing_imports = true

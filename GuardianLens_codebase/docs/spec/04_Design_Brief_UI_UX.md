@@ -23,9 +23,13 @@
 
 **Tone:** calm, factual, and slightly institutional. The product's whole value rests on the buyer trusting an uncomfortable message, so the register is closer to a lab report written in plain words than to a consumer security product. Nothing alarmist: a High band should read as serious information, not a siren. Nothing celebratory: a Low band is "no strong warning signs found", never "safe to buy" (that phrasing would violate NFR-10 by implication).
 
-**Brand identity basics:** wordmark "GuardianLens" set in the interface typeface, semibold, with a simple lens-ring mark. No mascots, no shield-and-padlock clichés (they overpromise protection), no imagery of money or handcuffs. Illustration is limited to small neutral glyphs for the three signals: an image glyph (visual), a text-lines glyph (textual), a person-with-clock glyph (behavioural).
+**Brand identity basics:** wordmark "GuardianLens" set in the display serif, semibold, with the lens-ring mark: a ring with one arc lit, the same shape as the score dial, so the logo and the verdict share one form. No mascots, no shield-and-padlock clichés (they overpromise protection), no imagery of money or handcuffs. Illustration is limited to small neutral glyphs for the three signals: an image glyph (visual), a text-lines glyph (textual), a person-with-clock glyph (behavioural).
 
 **Language:** interface copy in English for the FYP2 prototype. Rationale: every survey respondent encountered English listings and the study protocol is English-based; a Malay UI translation is a candidate future-work item, not a silent addition. This is a scoping statement, not a claim about user preference.
+
+**Names of the three checks:** the buyer sees Photos, Wording and Seller and price. The report and the code call them the visual, textual and behavioural signals. The third is named for what it reads, which includes the listing price, not only the seller. The names live in `shared/src/copy.ts`.
+
+**Method names stay hidden:** buyer-facing text never names a model, a model bundle, a training set or a timing. The API still sends them. The cards and the explanation page hide them behind one switch (`SHOW_MODEL_DETAILS` in `shared/src/copy.ts`, off) and keep the elements in the page, hidden. The development-stub warning is the one exception: while scores are placeholders the interface says so, because hiding it would be false.
 
 ---
 
@@ -37,12 +41,14 @@ CSS custom properties (code identifiers keep the `color` spelling by convention)
 
 | Token | Hex | Use |
 | --- | --- | --- |
-| `--color-ink` | #1A2332 | Primary text on light surfaces |
-| `--color-ink-muted` | #4A5568 | Secondary text, captions |
+| `--color-ink` | #0F1B2D | Primary text on light surfaces, and the fill of the main buttons |
+| `--color-ink-muted` | #4A566A | Secondary text, captions |
 | `--color-surface` | #FFFFFF | Cards, sheets |
-| `--color-surface-alt` | #F4F6F8 | Page background |
-| `--color-border` | #D7DEE6 | Card borders, dividers |
-| `--color-primary` | #1D4ED8 | Primary actions, links, focus ring base |
+| `--color-surface-alt` | #F5F4F0 | Page background (warm paper) |
+| `--color-border` | #DEDBD2 | Card borders, dividers |
+| `--color-primary` | #1D4ED8 | Links, focus ring, the lit arc of the logo |
+| `--color-navy` | #0F1B2D | The main buttons (white text, 17:1) |
+| `--color-control-border` | #85837C | Edges of form controls (3.8:1 on white, 3.4:1 on the page) |
 | `--color-primary-ink` | #FFFFFF | Text on primary |
 | `--color-risk-low` | #1E7A46 | Low band accents (with icon + label) |
 | `--color-risk-moderate` | #9A5B00 | Moderate band accents (with icon + label) |
@@ -54,29 +60,29 @@ Band colours are deliberately dark enough to work as text on white; tinted backg
 
 ### 3.2 Typography
 
-System-safe stack with one webfont: Inter (covers Malay diacritics for listing text display), fallback `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`. Tabular numerals for the score.
+Two bundled faces, both variable, Latin subset (Chrome MV3 blocks remote fonts): Newsreader (`@fontsource-variable/newsreader`) for titles only, and Public Sans (`@fontsource-variable/public-sans`) for everything people read or fill in, with tabular numerals for the score (verified: Public Sans has a working `tnum` feature). A size-matched Arial fallback limits layout shift, then `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`. Both cover English and Malay listing text.
 
 | Level | Size / line height | Weight | Use |
 | --- | --- | --- | --- |
 | Display | 44 / 48 | 700 | The score number on S4 only |
-| H1 | 28 / 34 | 650 | Screen titles |
-| H2 | 20 / 28 | 600 | Card titles, S5 section heads |
+| H1 | 36 / 41 on the website, 26 / 31 in the panel | 600, Newsreader | Screen titles |
+| H2 | 22 / 28 | 600, Newsreader | Card titles, S5 section heads |
 | Body | 16 / 24 | 400 | Default copy; never below 16 px for body on mobile |
 | Small | 14 / 20 | 400 | Captions, retention notice, timestamps |
 | Label | 13 / 16 | 550, +0.02em | Band chips, field labels |
 
 ### 3.3 Spacing, radius, elevation
 
-4 px base grid; component padding 16; card gap 12; page gutter 16 (mobile) / 24 (tablet) / centred 720 px content column (desktop, single-column by design). Radius: 12 cards, 10 buttons, 8 inputs. Elevation: borders first, one soft shadow level for sheets and the sticky submit bar only.
+4 px base grid; component padding 16; card gap 12; page gutter 16 (mobile) / 24 (tablet) / centred 720 px content column (desktop, single-column by design). Radius: 12 cards, 10 buttons, 8 inputs. Elevation: borders first; cards have no shadow, and one soft shadow level is kept for the sticky submit bar only.
 
 ### 3.4 Key components
 
 | Component | Spec |
 | --- | --- |
-| Primary button | Full-width on mobile, min height 48 px, `--color-primary`; disabled state keeps label readable and explains why via helper text above it |
+| Primary button | Full-width on mobile, min height 48 px, `--color-navy` fill; disabled state keeps its label readable and explains why in a line above it ("Still needed: a photo, a price.") |
 | Score dial | Integer 0 to 100, Display type, band chip directly beneath (icon + band word + one-line meaning), single count-up on first render, none on revisit |
 | Band chip | Icon + text label + tinted background; identical shape for all bands so colour is never the sole differentiator; distinct icons per band (tick-circle, alert-triangle, alert-octagon) plus a question-circle for unknown |
-| Signal card | Header (glyph + name + status word: "clear", "warning signs", "limited information"), one-sentence reason, chevron; states: available, degraded, unavailable; unavailable copy is fixed: "Not enough information. Treated as unknown, not as suspicious." |
+| Signal card | The three cards sit in one bordered group and share one template. Header (glyph + name + status word: "clear", "warning signs", "limited information"), one-sentence reason, chevron; states: available, degraded, unavailable; unavailable copy is fixed: "Not enough information. Treated as unknown, not as suspicious." |
 | Suggested-checks list | Checklist styling but not persisted checkboxes (avoids implying completion is tracked); each item one imperative sentence; Semak Mule item links out with an external-link icon |
 | Uploader | Tap-or-drop target min 120 px tall; per-file thumbnail, name, size, remove; per-file inline errors |
 | Progress stages (S3) | Five labelled stages with three states (done, active, pending); active stage animates; honest "taking longer than usual" line after a threshold; no percentages |
@@ -95,7 +101,7 @@ Every tap acknowledges within 100 ms (state change or skeleton). Transitions 150
 | Screen | Structure (top to bottom) | Notes |
 | --- | --- | --- |
 | S1 Landing | Wordmark bar → one-sentence purpose → primary CTA → three explainer blocks (checks / cannot guarantee / data handling) → footer | CTA appears once above the fold and once after the blocks; both go to S2 |
-| S2 Submission | Title bar → uploader → title, description (textarea with counter), price + category row → collapsible "Seller information (optional)" group → retention notice → sticky submit bar | Optional seller group is collapsed by default with the FR-06 reassurance line in its summary |
+| S2 Submission | Title bar → uploader → title, description (textarea with counter), price + category row → collapsible "Seller details (recommended)" group → retention notice → sticky submit bar | The seller group is open by default, because the Seller and price check needs it; its note says missing details count as unknown, not suspicious (FR-06) |
 | S3 Processing | Centered card: listing thumbnail + title → five stages → cancel (text button) | Nothing else competes for attention |
 | S4 Result | Score dial + band chip → disclaimer one-liner → three signal cards → missing-data notice (if any) → suggested checks → feedback prompt → "Check another" + "This session" | Order is fixed: judgement aids (cards, checks) come before exits |
 | S5 Explanation | Per-signal sections in the S4 card order; each: status, reasons (max 3 shown, "more" reveals rest), evidence scope note (visual section always carries the reference-corpus scope sentence) → checks → disclaimer | Anchored deep-links from S4 cards |
@@ -147,3 +153,5 @@ Applied prescriptively before build: each row is a named law from the 30-law Law
 Laws intentionally recorded as not applicable at this stage: none of the 30 are excluded outright, but the foundational concepts (Cognitive Bias, Mental Model, Working Memory) are treated per the source as explanatory background for the rows above rather than separate checklist items.
 
 **Audit protocol for Phase D:** re-run this table against the built screens at 375 px and 1440 px; every row gets pass, fail with finding, or waived with reason; failures block the usability test task, since testing a screen with known law violations wastes participants.
+
+**Re-check on 2026-11-02 (spot check, not the full Phase D audit):** the rows touched by the final design pass were re-read against the built screens at 375, 768 and 1440 px and in the side panel. Similarity: pass (the three check rows share one template and sit in one bordered group). Common Region: pass (score, band and disclaimer share one region; the three checks share one group). Proximity: pass (each row's name, status and reason sit tighter than the rows). Von Restorff: pass (band colour appears only on the dial, the band chip and history scores). Selective Attention: pass (the disclaimer is content inside the result region). Hick's Law: pass in the panel (one primary action, three feedback choices, one exit); on the website result the exits are Full explanation, Give feedback, Check another listing and This session. Cognitive Load: improved (the repeated "Captured" and "Not found" lines were removed, since the banner already says the page was read). Doherty Threshold: pass (a check on the trained models took 2.6 to 4.8 seconds in the real-use check, see `docs/evidence/2026-11-02-real-use-check.md`). The full 30-row re-run before the usability test is still open.

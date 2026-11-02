@@ -1,42 +1,98 @@
-{% extends "base.html" %}
-{% from "_dashboard_macros.html" import disclosure %}
-{% block title %}Dashboard · GuardianLens{% endblock %}
-{% block content %}
+{% extends "base.html" %} {% from "_dashboard_macros.html" import disclosure %}
+{% block title %}Dashboard · GuardianLens{% endblock %} {% block content %}
 <div class="dashboard">
-<section class="hero" aria-labelledby="dashboard-heading">
-  <div><p class="eyebrow">Manual + CSV replay · Human approval</p><h1 id="dashboard-heading">Collection Dashboard</h1><p>Mode: <b>{{ mode }}</b>. Only approved records count toward the dataset.</p></div>
-    <div class="big"><span id="approvedTotal">{{ plan.approved_total }}</span> / <span id="datasetTarget">{{ plan.total_target }}</span></div>
-    </section>
+  <section class="hero" aria-labelledby="dashboard-heading">
+    <div>
+      <p class="eyebrow">Manual + CSV replay · Human approval</p>
+      <h1 id="dashboard-heading">Collection Dashboard</h1>
+      <p>
+        Mode: <b>{{ mode }}</b>. Only approved records count toward the dataset.
+      </p>
+    </div>
+    <div class="big">
+      <span id="approvedTotal">{{ plan.approved_total }}</span> /
+      <span id="datasetTarget">{{ plan.total_target }}</span>
+    </div>
+  </section>
 
   <div class="dashboard-freshness" role="status" aria-live="polite">
-    <span id="dashboardFreshness">Stored data loaded. Connecting to live updates…</span>
-    <button type="button" id="refreshDashboard" class="secondary">Refresh now</button>
+    <span id="dashboardFreshness"
+      >Stored data loaded. Connecting to live updates…</span
+    >
+    <button type="button" id="refreshDashboard" class="secondary">
+      Refresh now
+    </button>
   </div>
   <p id="dashboardRefreshError" class="failure-detail" role="alert" hidden></p>
-  <noscript><p>Live updates require JavaScript. Reload this page for current stored totals and enable JavaScript to use collection controls.</p></noscript>
-<section aria-labelledby="platform-progress-heading">
-      <h2 id="platform-progress-heading">Platform progress</h2>
-        <div class="grid cards">
-            <article><h3>Carousell approved</h3><b><span id="carousellApproved">{{ plan.platforms.carousell.approved }}</span> / <span id="carousellTarget">{{ plan.platforms.carousell.target }}</span></b><small>Pending workload <span id="carousellPending">{{ plan.platforms.carousell.pending }}</span></small></article>
-                <article><h3>Mudah approved</h3><b><span id="mudahApproved">{{ plan.platforms.mudah.approved }}</span> / <span id="mudahTarget">{{ plan.platforms.mudah.target }}</span></b><small>Pending workload <span id="mudahPending">{{ plan.platforms.mudah.pending }}</span></small></article>
-                  </div>
-                  </section>
-<section aria-labelledby="review-workload-heading">
-<h2 id="review-workload-heading">Review workload</h2>
-<div class="grid cards">
-<article><h3>Ready for review</h3><b id="summaryReady">{{ counts.ready_for_review }}</b></article>
-<article><h3>Needs attention</h3><b id="summaryAttention">{{ counts.needs_attention }}</b></article>
-<article><h3>Open workload</h3><b id="reviewOpen">{{ review_stats.open_count }}</b></article>
-    <article><h3>Reviewed today</h3><b id="reviewedToday">{{ review_stats.reviewed_today }}</b><small id="reviewTimezone">{{ review_stats.operator_timezone }}</small></article>
+  <noscript
+    ><p>
+      Live updates require JavaScript. Reload this page for current stored
+      totals and enable JavaScript to use collection controls.
+    </p></noscript
+  >
+  <section aria-labelledby="platform-progress-heading">
+    <h2 id="platform-progress-heading">Platform progress</h2>
+    <div class="grid cards">
+      <article>
+        <h3>Carousell approved</h3>
+        <b
+          ><span id="carousellApproved"
+            >{{ plan.platforms.carousell.approved }}</span
+          >
+          /
+          <span id="carousellTarget"
+            >{{ plan.platforms.carousell.target }}</span
+          ></b
+        ><small
+          >Pending workload
+          <span id="carousellPending"
+            >{{ plan.platforms.carousell.pending }}</span
+          ></small
+        >
+      </article>
+      <article>
+        <h3>Mudah approved</h3>
+        <b
+          ><span id="mudahApproved">{{ plan.platforms.mudah.approved }}</span> /
+          <span id="mudahTarget">{{ plan.platforms.mudah.target }}</span></b
+        ><small
+          >Pending workload
+          <span id="mudahPending"
+            >{{ plan.platforms.mudah.pending }}</span
+          ></small
+        >
+      </article>
+    </div>
+  </section>
+  <section aria-labelledby="review-workload-heading">
+    <h2 id="review-workload-heading">Review workload</h2>
+    <div class="grid cards">
+      <article>
+        <h3>Ready for review</h3>
+        <b id="summaryReady">{{ counts.ready_for_review }}</b>
+      </article>
+      <article>
+        <h3>Needs attention</h3>
+        <b id="summaryAttention">{{ counts.needs_attention }}</b>
+      </article>
+      <article>
+        <h3>Open workload</h3>
+        <b id="reviewOpen">{{ review_stats.open_count }}</b>
+      </article>
+      <article>
+        <h3>Reviewed today</h3>
+        <b id="reviewedToday">{{ review_stats.reviewed_today }}</b
+        ><small id="reviewTimezone">{{ review_stats.operator_timezone }}</small>
+      </article>
+    </div>
+  </section>
 
-
+  {% include "_dashboard_collection.html" %} {% include
+  "_dashboard_operations.html" %} {% include "_dashboard_coverage.html" %}
 </div>
-</section>
-
-  {% include "_dashboard_collection.html" %}
-  {% include "_dashboard_operations.html" %}
-  {% include "_dashboard_coverage.html" %}
-</div>
-<script id="dashboardInitialState" type="application/json">{{ {'counts': counts, 'plan': plan, 'review_stats': review_stats, 'batch': batch, 'replay': replay, 'seller_retry': seller_retry, 'attention': attention, 'ai_status': ai_status, 'activity': activity, 'operational_queue': operational_queue}|tojson }}</script>
+<script id="dashboardInitialState" type="application/json">
+  {{ {'counts': counts, 'plan': plan, 'review_stats': review_stats, 'batch': batch, 'replay': replay, 'seller_retry': seller_retry, 'attention': attention, 'ai_status': ai_status, 'activity': activity, 'operational_queue': operational_queue}|tojson }}
+</script>
+{% endblock %} {% block scripts %}
+<script src="/static/attention_agent.js" defer></script>
 {% endblock %}
-{% block scripts %}<script src="/static/attention_agent.js" defer></script>{% endblock %}

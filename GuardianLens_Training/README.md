@@ -5,18 +5,20 @@ sigmoid calibration -> Low / Moderate / High bands -> seven-configuration ablati
 
 | Signal | Model | Code |
 | --- | --- | --- |
-| **T** Textual | XLM-RoBERTa fine-tune, 5 group-safe folds, class weights, early stopping on an inner slice | `gl/xlmr.py` |
+| **T** Textual | TF-IDF word/character features + text cues, logistic regression, group-safe nested tuning | `gl/models.py` (`TextCueSignal`) |
 | **V** Visual | CLIP photo-title consistency + SSCD copy detection vs a train-only reference corpus, logistic head | `gl/visual.py`, `gl/models.py` |
 | **B** Behavioural | XGBoost on price, category price ratio, seller fields + missingness flags; TreeSHAP | `gl/models.py`, `gl/features.py` |
 | **Fusion** | logistic regression on out-of-fold scores + availability flags, sigmoid calibration, bands | `gl/fusion.py` |
 | References | TF-IDF text baseline (methodology step 2); exploratory "everything in one" tabular model | `gl/models.py` |
 
+The latest selected run is `runs/final_test_results/20261002_062026_colab_v3_noMeta`. Its copied reports do not include fitted joblib artifacts. Deployment instructions are in `../GuardianLens_codebase/docs/TRAINED_MODELS.md`. Historical XLM-R runs are retained for comparison.
+
 ## Train on Google Colab (main route)
 
 1. Package: `dist/GuardianLens_Colab_Package.zip` (rebuild with `python scripts/make_colab_package.py`).
 2. Upload it to the top of Google Drive. Open `notebooks/GuardianLens_Colab.ipynb` in Colab, runtime **T4 GPU**, run top to bottom.
-3. It runs `python -m gl all --xlmr --tag colab` and shows every chart inline. Runs and the embedding cache live on Drive, so a
-   dropped session resumes (finished signals and XLM-R folds are skipped).
+3. It runs `python -m gl all --text-cues --tag colab` and shows every chart inline. Runs and the embedding cache live on Drive, so a
+   dropped session resumes (finished signals are skipped).
 
 To let Claude Code drive the Colab session, see [`docs/COLAB_MCP.md`](docs/COLAB_MCP.md).
 
@@ -25,7 +27,7 @@ To let Claude Code drive the Colab session, see [`docs/COLAB_MCP.md`](docs/COLAB
 | Command | What it does |
 | --- | --- |
 | `check` | Verifies split hashes, no group crosses splits, class counts, images exist (`--freeze` rewrites the manifest) |
-| `all [--xlmr] [--tag T] [--run ID]` | New run (or resume `--run`): signals B, V, references, optional T, then fusion, calibration, bands, validation report. Never reads test labels (the test split is read without labels for integrity checks) |
+| `all --text-cues [--tag T] [--run ID]` | New run (or resume `--run`): signals B, V, references, TF-IDF/text-cues T, then fusion, calibration, bands, validation report. Never reads test labels (the test split is read without labels for integrity checks) |
 | `signal B\|V\|T\|text_baseline\|tabular_ext` | Train one signal into a run |
 | `fuse` | Out-of-fold fusion of the trained signals, seven configurations, calibration, bands, SHAP, report |
 | `evaluate` | Rebuild validation metrics, charts and report |
@@ -58,7 +60,7 @@ See [`docs/AUDIT_RESPONSE.md`](docs/AUDIT_RESPONSE.md) for how the 2026-10-01 re
 ```powershell
 .\setup.ps1
 $py = "$env:USERPROFILE\venvs\guardianlens\Scripts\python.exe"
-& $py -m gl all --no-visual      # B + references + fusion; V and T need images / a GPU, use Colab
+& $py -m gl all --no-visual      # B + references + fusion; V needs images and CLIP/SSCD assets; add --text-cues for CPU text training
 & $py -m pytest tests -q
 ```
 

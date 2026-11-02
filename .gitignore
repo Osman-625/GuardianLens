@@ -84,6 +84,9 @@ GuardianLens_Training/dist/
 GuardianLens_Training/evaluations/
 GuardianLens_Training/audit/
 GuardianLens_Training/docs/history/
+# Downloaded run artifacts (reports, figures, per-listing CSVs, explanation samples): they quote
+# listing text and ids from the dataset, so they stay local like runs/.
+GuardianLens_Training/Drive_Artifacts_*/
 
 # URL crawler: keep code + category config. Drop collected URLs and debug HTML.
 URL_Crawler/output/
@@ -104,3 +107,12 @@ GuardianLens_codebase/ml/checkpoints/
 GuardianLens_codebase/ml/artifacts/
 GuardianLens_codebase/research/data/
 GuardianLens_codebase/research/exports/
+# Codebase: design-tool working folders, real-page fixtures (third-party listing text) and test output
+GuardianLens_codebase/.taste-skill/
+GuardianLens_codebase/.fallow/
+GuardianLens_codebase/extension/fixtures/real/
+GuardianLens_codebase/extension/test-results/
+GuardianLens_codebase/extension/playwright-report/
+GuardianLens_codebase/frontend/public/downloads/
+GuardianLens_codebase/extension/.output/
+GuardianLens_codebase/extension/.wxt/
