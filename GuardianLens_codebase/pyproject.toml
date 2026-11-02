@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "guardianlens-api"
 version = "0.1.0"
-description = "GuardianLens FYP2 FastAPI service scaffold"
+description = "GuardianLens API: explainable fraud-risk checks for Mudah.my and Carousell listings"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi==0.143.0",

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from api.dependencies import get_app_settings
 from api.schemas import HealthResponse
+from api.services.orchestrator import STUB_BUNDLE_LABEL
 from api.services.trained_models import missing_artifacts
 
 router = APIRouter(tags=["health"])
@@ -23,7 +24,7 @@ def health(request: Request) -> HealthResponse:
         environment=settings.guardianlens_env,
         stub_mode=models is None,
         inference_mode=settings.guardianlens_inference_mode,
-        model_bundle_label=models.label if models else "dev-stub-unvalidated",
+        model_bundle_label=models.label if models else STUB_BUNDLE_LABEL,
         missing_model_artifacts=missing_artifacts(run_dir) if run_dir else [],
         visual_model_ready=bool(models and models.visual_engine),
     )

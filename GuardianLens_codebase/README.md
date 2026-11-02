@@ -1,6 +1,6 @@
-# GuardianLens FYP2 First Draft
+# GuardianLens
 
-GuardianLens is a multimodal, explainable fraud-risk decision-support prototype for buyers checking Mudah.my and Carousell product listings before payment. This archive turns the supplied pre-implementation documents into a runnable product scaffold while preserving the locked scope and separating development stubs from research evidence.
+GuardianLens helps a buyer check a Mudah.my or Carousell listing before paying. A browser extension reads one listing when the buyer clicks, a trained model combines three checks (photos, wording, and seller and price), and the result explains each warning sign and what to verify independently. A website offers a manual form and the full explanation. It supports the buyer's judgement: it never says a listing is safe or fraudulent. It is a student research prototype.
 
 ## Read this first
 
@@ -53,10 +53,9 @@ powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 
 ### Run after setup
 
-Open Anaconda Prompt (or CMD with Conda available) and run:
+Open Anaconda Prompt (or CMD with Conda available) in the repository folder (the one that contains `package.json`) and run:
 
 ```cmd
-cd /d "C:\Users\cusma\OneDrive\Desktop\FYP Project\04_System_Workspaces\GuardianLens_codebase"
 conda activate Guardianlens_venv
 powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 ```
@@ -124,11 +123,27 @@ npm run build
 npm run test:e2e -w extension
 ```
 
-Last full run (2026-11-02): the Python suite passed with 189 tests, ruff, strict mypy, the secret scan and the prose punctuation check were clean, and the JavaScript checks passed (shared 79 tests, extension 357 tests with 2 real-page fixture files skipped until recorded pages are added, frontend 37 tests, lint, the Prettier format check, typecheck, `npm audit --omit=dev` with 0 vulnerabilities in the shipped dependencies on Next.js 16.4.3, the production build, and 6 browser end-to-end tests). The same day the built extension, the trained models and the production website were run together on six real listings from the validation split: see [the real-use check](docs/evidence/2026-11-02-real-use-check.md). `pip-audit` was last run on 2026-10-10. The manual checks that need live marketplace pages and a real browser are listed in `docs/superpowers/audits/2026-10-manual-checks.md`.
+Run all of these before a change is merged; CI runs the same list. The latest results, with test counts, are in [the final quality check](docs/evidence/2026-11-02-final-quality-check.md), and the real-use run on the trained models is in [the real-use check](docs/evidence/2026-11-02-real-use-check.md). `pip-audit` runs in CI. The manual checks that need live marketplace pages and a real browser are listed in `docs/superpowers/audits/2026-10-manual-checks.md`.
 
 ## What the buyer sees
 
 The interface is described in `.impeccable.md` and `docs/spec/04_Design_Brief_UI_UX.md`; the places where it differs from the specification are in `docs/CHANGES_FROM_SPEC.md`. Two choices matter when reading the code. The three checks are called Photos, Wording and Seller and price on screen (the report calls them visual, textual and behavioural); the names are in `shared/src/copy.ts`. Buyer-facing text never names a model, a bundle or a timing: the API still sends them, and `SHOW_MODEL_DETAILS` in `shared/src/copy.ts` (off) shows them again.
+
+## Configuration
+
+Nothing is hard-coded to one machine. Settings come from the environment; `.env.example` lists every name with its default (copy it to `.env`, which stays out of git).
+
+| Setting | Where | What it does |
+| --- | --- | --- |
+| `GUARDIANLENS_INFERENCE_MODE`, `GUARDIANLENS_MODEL_RUN_DIR`, `GUARDIANLENS_TRAINING_WORKSPACE` | API (`.env`) | Placeholder scores (`stub`) or the trained models, and where the saved run lives. |
+| `GUARDIANLENS_DATABASE_PATH` | API (`.env`) | The SQLite file for sessions, results and feedback. |
+| `GUARDIANLENS_ALLOWED_ORIGINS`, `GUARDIANLENS_SESSION_COOKIE` | API (`.env`) | Which website origins may call the API, and the session cookie name. |
+| `GUARDIANLENS_MAX_IMAGES`, `GUARDIANLENS_MAX_IMAGE_BYTES`, `GUARDIANLENS_TITLE_MAX_LENGTH`, `GUARDIANLENS_DESCRIPTION_MAX_LENGTH`, `GUARDIANLENS_CATEGORY_MAX_LENGTH` | API (`.env`) | Input limits. The website and the extension show the same limits from `shared/src/limits.ts`: change both together. |
+| `GUARDIANLENS_RATE_LIMIT_PER_MINUTE`, `GUARDIANLENS_RATE_LIMIT_PER_IP_PER_MINUTE` | API (`.env`) | Checks allowed per session and per address each minute. |
+| `NEXT_PUBLIC_API_BASE_URL` | Website | Where the website finds the API. |
+| `WXT_API_BASE_URL`, `WXT_SITE_BASE_URL` | Extension (build time) | Where the extension finds the API and the website. The built manifest limits the extension to the API origin. |
+
+The defaults point at `localhost` ports 8000 (API) and 3000 (website) for local work. Buyer-facing wording and the names of the three checks are in `shared/src/copy.ts`; the design tokens are at the top of `shared/src/styles.css`.
 
 ## Data storage
 

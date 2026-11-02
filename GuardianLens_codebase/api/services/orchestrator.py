@@ -24,6 +24,9 @@ from api.services.pipelines import (
 )
 from api.services.trained_models import TrainedModels
 
+# What the API calls the model bundle while it serves placeholder scores (see /health).
+STUB_BUNDLE_LABEL = "dev-stub-unvalidated"
+
 # The caveat shown with every score, the extra warning shown only on stub scores, and the manual
 # checks every result suggests.
 DISCLAIMER = (
@@ -168,7 +171,7 @@ def run_development_assessment(
             missing_data_notices=missing_notices,
             suggested_checks=SUGGESTED_CHECKS,
             disclaimer=(DISCLAIMER if models else f"{DEVELOPMENT_NOTICE} {DISCLAIMER}"),
-            model_bundle_label=models.label if models else "dev-stub-unvalidated",
+            model_bundle_label=models.label if models else STUB_BUNDLE_LABEL,
             created_at=assessment.created_at,
             total_latency_ms=total_latency_ms,
             development_stub=models is None,

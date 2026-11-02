@@ -252,7 +252,8 @@ export default function AssessPage() {
             </span>
             <strong>Add 1 to {MAX_PHOTOS} photos</strong>
             <span className="helper">
-              Drop photos here, or tap to choose. JPEG, PNG, or WebP, up to 5 MB each.
+              Drop photos here, or tap to choose. JPEG, PNG, or WebP, up to {LIMITS.photoMegabytes}{" "}
+              MB each.
             </span>
           </label>
           {files.length > 0 && (
