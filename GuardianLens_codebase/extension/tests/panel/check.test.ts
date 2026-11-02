@@ -24,11 +24,13 @@ import { sampleListing, sampleResult } from "../helpers/samples";
 // A valid draft to check, a status answer for "still running at this stage", and the final
 // "complete" status answer.
 const draft = draftFromListing(sampleListing());
+// A status answer for a check that is still running at the given stage.
 const processing = (stage: AssessmentStatusResponse["stage"]): AssessmentStatusResponse => ({
   status: "processing",
   stage,
   message: null,
 });
+// A status answer for a finished check.
 const complete: AssessmentStatusResponse = {
   status: "complete",
   stage: null,
@@ -64,6 +66,8 @@ function fakeDeps(statuses: AssessmentStatusResponse[], overrides: Partial<Check
   return { deps, client, events };
 }
 
+// runCheck submits the draft, follows the stages and maps every outcome (result, field error,
+// failure).
 describe("runCheck", () => {
   it("submits once, follows the stages, and returns the result", async () => {
     const { deps, client, events } = fakeDeps([

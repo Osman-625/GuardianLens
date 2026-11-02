@@ -22,6 +22,7 @@ const NOW = new Date(Date.UTC(2026, 9, 5));
 // A seller page URL against which relative listing links are resolved.
 const BASE = "https://www.carousell.com.my/u/someone/";
 
+// parseAccountAgeDays turns a stated join date into whole days, and refuses to guess.
 describe("parseAccountAgeDays", () => {
   it.each([
     ["Joined 3 years 2 months ago", 1155],
@@ -134,6 +135,7 @@ describe("Carousell's seller card wording", () => {
   });
 });
 
+// parseReviewStats reads the rating (0 to 5) and the review count from seller-page text.
 describe("parseReviewStats", () => {
   it("reads a combined rating and count", () => {
     expect(parseReviewStats("4.8 (17 reviews)")).toEqual({
@@ -175,6 +177,7 @@ describe("parseReviewStats", () => {
   });
 });
 
+// countActiveListings counts the seller's listing cards that are not marked SOLD, each card once.
 describe("countActiveListings", () => {
   // The markup of one listing card, with a SOLD badge when `sold` is true.
   const card = (id: string, sold = false) =>
@@ -217,6 +220,7 @@ describe("countActiveListings", () => {
   });
 });
 
+// parseSellerPage combines the four seller values read from one seller page.
 describe("parseSellerPage", () => {
   it("combines all four values from one page", () => {
     const doc = parseHtml(`<body>
@@ -277,6 +281,7 @@ describe("a Mudah seller page", () => {
   });
 });
 
+// Only a SOLD badge marks a listing as sold; the word inside a title does not.
 describe("a listing title that merely contains the word sold", () => {
   it("is still an active listing; only a SOLD badge marks one as sold", () => {
     const doc = parseHtml(
@@ -342,8 +347,9 @@ describe("live seller pages", () => {
   });
 });
 
-// A seller page is untrusted text. These inputs used to make the number patterns retry from every
-// digit (100,000 digits followed by " y joined" took about 100 s), freezing the side panel.
+// A seller page is untrusted text. The number patterns must not retry from every digit of a long
+// run
+// (100,000 digits followed by " y joined" would take about 100 s and freeze the side panel).
 describe("long runs of digits", () => {
   const LIMIT_MS = 1500;
   const timed = (fn: () => void): number => {

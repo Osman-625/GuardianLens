@@ -9,6 +9,7 @@ import type { RiskBand } from "../types";
 
 /** Results whose count-up has already played in this page's lifetime (no replay on revisit). */
 const revealed = new Set<string>();
+// How long the first-time count-up of the score runs, in milliseconds.
 const COUNT_MS = 700;
 
 /**
@@ -20,6 +21,7 @@ function useCountUp(score: number, key: string): number {
   const [shown, setShown] = useState(score);
   useLayoutEffect(() => {
     const motionOk = window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
+    // Reduced motion, a revisit and a zero score all show the final number at once.
     if (!motionOk || revealed.has(key) || score <= 0) {
       setShown(score);
       return;
@@ -28,12 +30,14 @@ function useCountUp(score: number, key: string): number {
     const start = performance.now();
     const step = (now: number) => {
       const t = Math.min((now - start) / COUNT_MS, 1);
+      // Ease-out (quartic): a fast start and a soft landing on the final number.
       setShown(Math.round(score * (1 - (1 - t) ** 4)));
       if (t < 1) frame = requestAnimationFrame(step);
       else revealed.add(key);
     };
     setShown(0);
     frame = requestAnimationFrame(step);
+    // Leaving mid-count restores the final value, so a half-counted score is never left on screen.
     return () => {
       cancelAnimationFrame(frame);
       setShown(score);

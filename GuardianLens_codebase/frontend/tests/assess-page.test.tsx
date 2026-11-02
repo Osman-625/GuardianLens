@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AssessPage from "../app/assess/page";
 import { GuardianLensApiError, apiFetch } from "../lib/api";
 
+// A stand-in for the Next.js router, so a test can see where the page navigates.
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -43,6 +44,7 @@ async function fillAndSubmit() {
 const refusal = (code: string, message: string, field: string) =>
   new GuardianLensApiError(422, { error: { code, message, field } });
 
+// Text over the API limits is flagged and keeps the submit button off.
 describe("manual form length limits", () => {
   it("shows a title over the limit in red and keeps the button off", async () => {
     const user = userEvent.setup();
@@ -62,6 +64,8 @@ describe("manual form length limits", () => {
   });
 });
 
+// Where an error from the API appears: beside its field, beside the submit button, or as "could not
+// be reached".
 describe("manual form errors from the API", () => {
   it.each([
     ["rating", "Enter a rating from 0 to 5.", "Rating: Enter a rating from 0 to 5."],

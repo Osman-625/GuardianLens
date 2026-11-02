@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeText, parsePriceRm, parsePriceValue, textOf } from "../../lib/capture/values";
 
+// normalizeText collapses whitespace and trims.
 describe("normalizeText", () => {
   it("collapses whitespace and trims", () => {
     expect(normalizeText("  a \n\t b  ")).toBe("a b");
@@ -18,6 +19,7 @@ describe("normalizeText", () => {
   });
 });
 
+// textOf reads an element's visible text, normalised.
 describe("textOf", () => {
   it("reads the visible text of an element, normalised", () => {
     // Built with DOM calls (not innerHTML) so the test needs no HTML parsing of a string.
@@ -35,6 +37,7 @@ describe("textOf", () => {
   });
 });
 
+// parsePriceRm reads a Malaysian ringgit amount from price text in the formats listings use.
 describe("parsePriceRm", () => {
   // "RM" must be a word of its own: letters inside another word ("Form 4", "warm 2") are not a price.
   it.each(["Form 4 students", "warm 2 layers", "Perform 10 times"])(
@@ -71,6 +74,8 @@ describe("parsePriceRm", () => {
   });
 });
 
+// parsePriceValue reads a price from a symbol-free value (JSON-LD, a meta tag): finite and non-
+// negative.
 describe("parsePriceValue", () => {
   it.each([
     ["1250.00", 1250],

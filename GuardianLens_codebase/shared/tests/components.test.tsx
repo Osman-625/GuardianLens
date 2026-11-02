@@ -36,6 +36,7 @@ function card(overrides: Partial<SignalCard> = {}): SignalCard {
   };
 }
 
+// Icon is decorative: hidden from assistive technology and not focusable.
 describe("Icon", () => {
   it("is decorative: hidden from screen readers and not focusable", () => {
     const { container } = render(<Icon name="check" />);
@@ -46,6 +47,7 @@ describe("Icon", () => {
   });
 });
 
+// BandChip shows a band as words, an icon and a meaning, and never calls the low band safe.
 describe("BandChip", () => {
   it("shows the band as words, with a decorative icon and a meaning line", () => {
     const { container } = render(<BandChip band="moderate" />);
@@ -74,6 +76,8 @@ describe("BandChip", () => {
   });
 });
 
+// ScoreRegion holds the score, the band and the disclaimer in one labelled region, with no
+// decimals.
 describe("ScoreRegion", () => {
   it("labels the region with the score and band and contains the disclaimer", () => {
     render(<ScoreRegion score={62} band="moderate" disclaimer="Decision support only." />);
@@ -95,6 +99,7 @@ describe("ScoreRegion", () => {
   });
 });
 
+// SignalCardView renders one check as a link or a plain card, with its icon and its main finding.
 describe("SignalCardView", () => {
   it("renders a link when given an href", () => {
     render(<SignalCardView card={card()} href="/assess/1/explanation#visual" />);
@@ -189,6 +194,7 @@ describe("SignalCardView", () => {
   });
 });
 
+// StageList marks each stage done, active or pending.
 describe("StageList", () => {
   it("marks earlier stages done and the current stage active", () => {
     const { container } = render(<StageList stage="textual" />);
@@ -212,6 +218,7 @@ describe("StageList", () => {
   });
 });
 
+// DevBanner warns that scores are placeholder test data.
 describe("DevBanner", () => {
   it("warns that scores are placeholder test data", () => {
     render(<DevBanner />);
@@ -219,6 +226,7 @@ describe("DevBanner", () => {
   });
 });
 
+// CategoryField accepts any category text and suggests the twelve trained categories.
 describe("CategoryField", () => {
   /** A controlled harness, because the field is a controlled input. */
   function Harness({ initial = "", error }: { initial?: string; error?: string }) {

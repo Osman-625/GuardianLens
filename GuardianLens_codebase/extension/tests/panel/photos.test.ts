@@ -11,6 +11,7 @@ import { MAX_PHOTO_BYTES, preparePhotos, type PhotoDeps } from "../../lib/panel/
 
 // Two photo URLs on a permitted host, and one on a host the manifest does not permit.
 const GOOD = "https://media.karousell.com/media/photos/products/1/a.jpg";
+// A second photo on a permitted host, and a photo on a host that is not permitted.
 const OTHER = "https://media.karousell.com/media/photos/products/1/b.jpg";
 const BAD_HOST = "https://example.com/a.jpg";
 
@@ -34,6 +35,7 @@ function deps(overrides: Partial<PhotoDeps> = {}): FakeDeps {
   } as FakeDeps;
 }
 
+// preparePhotos downloads the selected photos and re-encodes any the API would refuse.
 describe("preparePhotos", () => {
   it("passes a photo through unchanged when it already fits", async () => {
     const fake = deps();

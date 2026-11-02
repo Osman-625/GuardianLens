@@ -1,3 +1,6 @@
+# Packaging and tool settings for the Python API (api/). Dependencies are pinned exactly so every
+# machine and CI run the same versions; optional extras add the trained-model packages. The
+# JavaScript side is configured in package.json at the repository root.
 [build-system]
 requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
@@ -41,10 +44,13 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["api*"]
 
+# Tests: every API test lives in api/tests and the output is kept short.
 [tool.pytest.ini_options]
 testpaths = ["api/tests"]
 addopts = "-q"
 
+# Style and bug checks: pycodestyle and pyflakes (E, F), import order (I), bugbear (B), pyupgrade
+# (UP) and simplifications (SIM), at the same 100-column width as the TypeScript code.
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -52,6 +58,7 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
+# Type checking: strict for the whole api package.
 [tool.mypy]
 python_version = "3.12"
 strict = true

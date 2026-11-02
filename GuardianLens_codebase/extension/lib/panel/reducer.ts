@@ -117,6 +117,8 @@ function pageLabel(url: string): string {
     return url;
   }
 }
+// Notices for a seller-page capture that adds nothing: the page showed no seller details, it
+// belongs to another seller, or it could not be read.
 const SELLER_NOTHING_NOTICE =
   "No seller details could be read from that page. Type what you can see below.";
 const SELLER_OTHER_NOTICE =

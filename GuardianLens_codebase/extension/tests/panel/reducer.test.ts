@@ -32,6 +32,7 @@ function run(state: PanelState, ...actions: PanelAction[]): PanelState {
 /** A state in the Review view with a fresh draft. */
 const review = () => run(initialPanelState, { type: "capture_finished", job: listingJob(10) });
 
+// capture_finished decides which view a finished capture opens, and what the notice says.
 describe("capture_finished", () => {
   it("starts in the idle state", () => {
     expect(initialPanelState.view).toEqual({
@@ -115,6 +116,7 @@ describe("capture_finished", () => {
   });
 });
 
+// A capture older than the one already applied never replaces newer work.
 describe("old captures never overwrite newer work", () => {
   it("ignores a finished job that was already applied", () => {
     const edited = run(review(), {
@@ -182,6 +184,7 @@ describe("old captures never overwrite newer work", () => {
 // The seller page used by the seller-capture tests below.
 const SELLER_PAGE = "https://www.carousell.com.my/u/someone/";
 
+// A capture of the seller's page adds seller details to the existing draft, or explains why not.
 describe("seller page captures", () => {
   // A finished capture job of a seller page (ready, or blocked by a captcha).
   const sellerJob = (id: number, pageState: "ready" | "captcha" = "ready"): CaptureJob => ({
@@ -343,6 +346,7 @@ describe("seller page captures", () => {
   });
 });
 
+// Editing marks a field edited and enforces the photo limit.
 describe("editing", () => {
   it("marks the field edited and clears that field's error", () => {
     const failed = run(review(), {
@@ -376,6 +380,7 @@ describe("editing", () => {
   });
 });
 
+// Submitting starts a check only for a valid draft, and only once.
 describe("submitting", () => {
   it("blocks an invalid draft and shows what to fix", () => {
     const blank = run(
@@ -404,6 +409,7 @@ describe("submitting", () => {
   });
 });
 
+// Checking and results: stage progress, the result, and each way a check can end.
 describe("checking and results", () => {
   it("moves through accepted, stage changes, and slow wait", () => {
     let state = run(
@@ -529,6 +535,7 @@ describe("checking and results", () => {
   });
 });
 
+// Typed values survive a failed check and a retry.
 describe("edits survive a failed check", () => {
   it("keeps typed values through a failure and a retry", () => {
     const edited = run(review(), {

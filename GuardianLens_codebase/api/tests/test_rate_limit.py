@@ -40,6 +40,7 @@ class Clock:
     now = 1000.0
 
     def __call__(self) -> float:
+        """Returns the current fake time."""
         return self.now
 
 

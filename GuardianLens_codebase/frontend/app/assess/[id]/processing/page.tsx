@@ -43,7 +43,7 @@ export default function ProcessingPage() {
         lostRequests = 0;
         setStage(result.stage);
         if (result.status === "complete") {
-          // A finished check no longer needs its draft; keeping it would prefill the next listing.
+          // A finished check clears its draft, so the next listing starts with an empty form.
           window.sessionStorage.removeItem(DRAFT_KEY);
           router.replace(`/assess/${params.id}`);
           return;

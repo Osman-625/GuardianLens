@@ -113,7 +113,7 @@ describe("header transport", () => {
     expect(calls[1].init.credentials).toBeUndefined();
   });
 
-  // The backend restarted and no longer knows the stored token, so the client replaces it.
+  // The backend restarted and does not recognise the stored token, so the client replaces it.
   it("mints a new session and retries once when the stored token is rejected", async () => {
     const store = memoryStore("stale");
     const { impl, calls } = fakeFetch([

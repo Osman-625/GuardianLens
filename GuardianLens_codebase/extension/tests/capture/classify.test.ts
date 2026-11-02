@@ -10,6 +10,7 @@ import {
   platformFromHost,
 } from "../../lib/capture/classify";
 
+// platformFromHost maps a hostname to its marketplace, for the four supported hosts only.
 describe("platformFromHost", () => {
   it("knows the four marketplace hosts", () => {
     expect(platformFromHost("www.carousell.com.my")).toEqual({
@@ -28,6 +29,8 @@ describe("platformFromHost", () => {
   });
 });
 
+// classifyListingUrl accepts only a single-listing path: Carousell /p/<slug>-<id>, Mudah
+// /<slug>-<id>.htm.
 describe("classifyListingUrl", () => {
   it("recognises a Carousell listing", () => {
     expect(classifyListingUrl("https://www.carousell.com.my/p/iphone-13-1234567890/")).toEqual({
@@ -70,6 +73,8 @@ describe("classifyListingUrl", () => {
   });
 });
 
+// classifySellerUrl accepts profile pages (/u/<name> on both sites, plus generic seller paths)
+// only.
 describe("classifySellerUrl", () => {
   it("recognises a Carousell profile page", () => {
     expect(classifySellerUrl("https://www.carousell.com.my/u/some-seller/")).toEqual({

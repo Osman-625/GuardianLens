@@ -13,6 +13,7 @@ import type { Platform } from "@guardianlens/shared";
 // run (`npm run test -w extension`). import.meta.url is not a file: URL under the jsdom test
 // environment, so it cannot be used to locate these folders.
 const REAL_ROOT = resolve(process.cwd(), "fixtures/real");
+// The committed synthetic pages, which every test run can read.
 const SYNTHETIC_ROOT = resolve(process.cwd(), "tests/fixtures/synthetic");
 
 /** What a human read off the live page when recording it (see fixtures/README.md). Null = not shown. */

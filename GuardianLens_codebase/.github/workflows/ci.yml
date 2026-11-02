@@ -1,3 +1,7 @@
+# Continuous integration: every push and pull request runs the checks below, so a change cannot
+# reach a branch with a failing test, a lint error, a type error or a known vulnerability. Two
+# independent jobs run side by side: the Python API (backend) and the JavaScript workspaces
+# (frontend: shared package, extension and website).
 name: ci
 
 on:

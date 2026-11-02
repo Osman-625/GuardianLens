@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { IMAGE_HOST_PATTERNS, isFetchableImageUrl, PAGE_HOST_PATTERNS } from "../lib/hosts";
 
+// IMAGE_HOST_PATTERNS lists the photo hosts in manifest match-pattern form.
 describe("IMAGE_HOST_PATTERNS", () => {
   it("uses the manifest match-pattern shape https://<host>/*", () => {
     for (const pattern of IMAGE_HOST_PATTERNS) {
@@ -15,6 +16,7 @@ describe("IMAGE_HOST_PATTERNS", () => {
   });
 });
 
+// isFetchableImageUrl accepts https photos on listed hosts and nothing else.
 describe("isFetchableImageUrl", () => {
   it("accepts an https photo on a listed host", () => {
     expect(isFetchableImageUrl("https://media.karousell.com/media/photos/products/1/a.jpg")).toBe(
@@ -67,6 +69,7 @@ describe("isFetchableImageUrl", () => {
   });
 });
 
+// PAGE_HOST_PATTERNS lists the marketplace page hosts; none of them may overlap a photo host.
 describe("PAGE_HOST_PATTERNS", () => {
   // These are optional permissions asked for from a click, so they must be exactly the four
   // marketplace hosts and never overlap the standing photo-host list.

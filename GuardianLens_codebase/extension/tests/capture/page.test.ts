@@ -7,6 +7,8 @@ import { loadSynthetic, parseHtml } from "../helpers/realFixtures";
 // "Today" for the seller join-date calculations, so the tests do not depend on the real clock.
 const NOW = new Date(Date.UTC(2026, 9, 5));
 
+// captureCurrentPage reads the open page as a listing, a seller page, a blocked page or an
+// unsupported one.
 describe("captureCurrentPage", () => {
   it("captures a listing page", () => {
     const result = captureCurrentPage(

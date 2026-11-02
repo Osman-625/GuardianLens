@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProcessingPage from "../app/assess/[id]/processing/page";
 import { GuardianLensApiError, apiFetch } from "../lib/api";
 
+// A stand-in for the Next.js router, so a test can see where the page navigates.
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
@@ -17,6 +18,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   apiFetch: vi.fn(),
 }));
 
+// The three kinds of status answer: a check still running, a finished one, and a request that never
+// reached the server.
 const processing = { status: "processing", stage: "visual", message: null };
 const complete = { status: "complete", stage: null, message: null };
 const lost = () => new TypeError("Failed to fetch");
@@ -37,6 +40,8 @@ async function tick(times = 1) {
   }
 }
 
+// The processing page follows a check to its result, retries lost requests and stops on a real
+// answer.
 describe("processing page polling", () => {
   it("opens the result when the check completes", async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(processing).mockResolvedValueOnce(complete);

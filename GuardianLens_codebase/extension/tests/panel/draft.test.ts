@@ -19,6 +19,7 @@ import {
 } from "../../lib/panel/draft";
 import { PHOTOS, manyPhotos, sampleListing, sampleSeller } from "../helpers/samples";
 
+// draftFromListing builds the editable Review draft from a captured listing.
 describe("draftFromListing", () => {
   it("copies captured values and marks them captured", () => {
     const draft = draftFromListing(sampleListing());
@@ -84,6 +85,7 @@ describe("draftFromListing", () => {
   });
 });
 
+// applySeller merges seller-page values into the draft without touching what the buyer typed.
 describe("applySeller", () => {
   it("fills seller fields from the seller page", () => {
     const draft = applySeller(draftFromListing(sampleListing()), sampleSeller());
@@ -111,6 +113,7 @@ describe("applySeller", () => {
   });
 });
 
+// editField marks a field edited; togglePhoto selects or deselects a photo within the limit of ten.
 describe("editField and togglePhoto", () => {
   it("marks an edited field as edited", () => {
     const draft = editField(draftFromListing(sampleListing()), "title", "New title");
@@ -133,6 +136,7 @@ describe("editField and togglePhoto", () => {
   });
 });
 
+// parsePriceInput turns typed price text into a number, or null when it is not a single amount.
 describe("parsePriceInput", () => {
   it.each([
     ["RM 1,250", 1250],
@@ -147,6 +151,7 @@ describe("parsePriceInput", () => {
   });
 });
 
+// validateDraft lists what blocks a check: missing fields, text over the limits, invalid numbers.
 describe("validateDraft", () => {
   it("accepts a complete draft", () => {
     expect(validateDraft(draftFromListing(sampleListing()))).toEqual({});
@@ -200,6 +205,7 @@ describe("validateDraft", () => {
   });
 });
 
+// buildCaptureMeta says how each field was obtained (captured, edited, not found), with no URLs.
 describe("buildCaptureMeta", () => {
   it("reports each field's origin and the platform host", () => {
     let draft = draftFromListing(
@@ -242,6 +248,7 @@ describe("buildCaptureMeta", () => {
   });
 });
 
+// buildForm builds the multipart body the API expects from a draft and its prepared photos.
 describe("buildForm", () => {
   it("builds the multipart form the API expects", () => {
     const photo = new File([new Uint8Array([1, 2, 3])], "photo-1.jpg", {

@@ -18,6 +18,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+// The landing page invents no data: no example score, one download link.
 describe("landing page", () => {
   it("shows no example score and offers the extension download once", () => {
     vi.mocked(apiFetch).mockResolvedValue({
@@ -35,6 +36,7 @@ describe("landing page", () => {
 /** True for a link that downloads the extension zip. */
 const isDownload = (link: HTMLElement) => link.hasAttribute("download");
 
+// The explanation page prints a status word only for a signal that could not be computed.
 describe("explanation page", () => {
   it("prints a status word only for a signal that could not be computed", async () => {
     const card = (signal: string, available: boolean, status_word: string, summary: string) => ({

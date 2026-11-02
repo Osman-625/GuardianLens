@@ -12,6 +12,7 @@ import { loadSynthetic, parseHtml } from "../helpers/realFixtures";
 
 // A well-formed listing URL for each platform; the adapter needs the shape, not a live page.
 const CAROUSELL_URL = "https://www.carousell.com.my/p/used-laptop-1234567890/";
+// A Mudah listing URL in the shape the page classifier accepts.
 const MUDAH_URL = "https://www.mudah.my/samsung-galaxy-s21-123456789.htm";
 
 /** Builds a small page from head and body markup, for tests that need one specific shape. */
@@ -21,6 +22,7 @@ function page(body: string, head = ""): Document {
   );
 }
 
+// A Carousell-style page: every field is read from JSON-LD structured data.
 describe("structured data page (Carousell style)", () => {
   const listing = captureListing(loadSynthetic("carousell-jsonld"), CAROUSELL_URL);
 
@@ -87,6 +89,8 @@ describe("the seller's profile link on a listing page", () => {
   });
 });
 
+// A Mudah-style page with no embedded data: fields come from the heading, the visible price and the
+// breadcrumb.
 describe("DOM-only page (Mudah style, no embedded ad data)", () => {
   const listing = captureListing(loadSynthetic("mudah-dom-only"), MUDAH_URL);
 
@@ -112,6 +116,8 @@ describe("DOM-only page (Mudah style, no embedded ad data)", () => {
   });
 });
 
+// A Mudah page that embeds its ad data (__NEXT_DATA__): only the data for THIS listing id is
+// trusted.
 describe("Mudah page with embedded ad data (__NEXT_DATA__)", () => {
   const url = "https://www.mudah.my/used-phone-123456789.htm";
   const listing = captureListing(loadSynthetic("mudah-next-data"), url);
@@ -168,6 +174,8 @@ describe("Mudah page with embedded ad data (__NEXT_DATA__)", () => {
   });
 });
 
+// A platform selector can reach a description that generic reading cannot; without one it is not
+// found.
 describe("platform selectors", () => {
   it("do not find a description that only a selector can reach, unless one is configured", () => {
     const without = captureListing(loadSynthetic("selectors-description"), CAROUSELL_URL);
@@ -186,6 +194,7 @@ describe("platform selectors", () => {
   });
 });
 
+// A price shown beside other ads' prices is read only when the page agrees on a single amount.
 describe("price text on a page that also shows other ads", () => {
   // Marketplace pages list related ads, each with its own "RM ..." price. Taking the first amount
   // would show a different ad's price as Captured, so more than one distinct amount is ambiguous.
@@ -214,6 +223,7 @@ describe("price text on a page that also shows other ads", () => {
   });
 });
 
+// A price range in structured data is not one price, so it is reported as not found.
 describe("a price range in structured data", () => {
   it("is not captured as its low end", () => {
     const head = `<script type="application/ld+json">{"@type":"Product","name":"Used phone","offers":{"@type":"AggregateOffer","lowPrice":"1200","highPrice":"1500"}}</script>`;
@@ -222,6 +232,7 @@ describe("a price range in structured data", () => {
   });
 });
 
+// Pages that stop the reader (login wall, security check) are detected from the URL or the text.
 describe("blocked pages", () => {
   it.each([
     ["blocked-captcha", "captcha"],
@@ -240,6 +251,8 @@ describe("blocked pages", () => {
   });
 });
 
+// A page that shows only part of a listing marks each unreadable field not found and the page
+// incomplete.
 describe("incomplete pages", () => {
   it("marks every unreadable field as not found and the page as incomplete", () => {
     const listing = captureListing(loadSynthetic("missing-everything"), CAROUSELL_URL);
@@ -270,6 +283,7 @@ describe("ambiguous prices", () => {
   });
 });
 
+// Malformed or unexpected page content never throws: it degrades to not found.
 describe("robustness", () => {
   it("ignores malformed structured data", () => {
     const doc = page(

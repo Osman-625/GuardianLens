@@ -4,6 +4,7 @@ import { SIGNAL_ICONS, SIGNAL_LOOKS_AT, SIGNAL_NAMES } from "../copy";
 import type { SignalName } from "../types";
 import { Icon } from "./Icon";
 
+// The order the three checks are listed in, as on the result page.
 const ORDER: SignalName[] = ["visual", "textual", "behavioural"];
 
 /** Renders the list: the signal's icon, its name, and one line on what it looks at. */

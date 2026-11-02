@@ -60,6 +60,7 @@ export interface ActiveTabDeps {
   activeTab(): Promise<{ id?: number; url?: string } | undefined>;
 }
 
+// The real Chrome calls behind ActiveTabDeps; tests pass fakes instead.
 const defaultActiveTabDeps: ActiveTabDeps = {
   requestAccess: (origins) => browser.permissions.request({ origins }),
   activeTab: async () => (await browser.tabs.query({ active: true, lastFocusedWindow: true }))[0],
@@ -102,6 +103,7 @@ export async function runCaptureForTab(
   deps: RunnerDeps = defaultDeps,
 ): Promise<void> {
   const id = deps.now();
+  // The reader is injected only on a listed marketplace page, never anywhere else.
   if (!isSupportedPage(tab.url)) {
     await deps.writeState({
       id,
@@ -111,16 +113,19 @@ export async function runCaptureForTab(
     });
     return;
   }
+  // Marked as running first, so the panel can say it is reading the page while the script works.
   await deps.writeState({ id, tabId: tab.id, status: "capturing" });
   try {
     await deps.inject(tab.id);
     const result = await deps.request(tab.id);
+    // A script that answers nothing is reported apart from one that could not be injected.
     await deps.writeState(
       result
         ? { id, tabId: tab.id, status: "done", result }
         : { id, tabId: tab.id, status: "error", error: "no_response" },
     );
   } catch {
+    // Injection fails when the tab closed, the page is protected, or access was not granted.
     await deps.writeState({
       id,
       tabId: tab.id,

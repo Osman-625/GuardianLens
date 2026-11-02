@@ -16,6 +16,7 @@ function answerWith(response: Response) {
   return fetchMock;
 }
 
+// apiFetch: JSON and empty answers, typed errors, credentials, and the request time limit.
 describe("apiFetch", () => {
   it("returns the JSON body of a success", async () => {
     answerWith(Response.json({ ok: true }));

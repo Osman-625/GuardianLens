@@ -60,10 +60,13 @@ export function selectGalleryImages(
   limit = 12,
 ): string[] {
   const usable = candidates.filter((candidate) => isUsable(candidate.url));
+  // Gallery photos are the large ones; small images are icons or other ads' thumbnails.
   const large = usable.filter((c) => c.width >= LARGE_EDGE && c.height >= LARGE_EDGE);
+  // The folders (host + path) that hold a large photo: the listing's own gallery folders.
   const galleryDirectories = new Set(
     large.map((c) => directoryKey(c.url)).filter((key): key is string => key !== null),
   );
+  // A small image counts only when it sits in a gallery folder (the listing's own thumbnail strip).
   const thumbnails =
     galleryDirectories.size === 0
       ? []
@@ -74,6 +77,7 @@ export function selectGalleryImages(
             !(c.width >= LARGE_EDGE && c.height >= LARGE_EDGE) &&
             galleryDirectories.has(directoryKey(c.url) ?? ""),
         );
+  // The page's own list (structured data) first, then the large photos, then the thumbnails.
   const ordered = [
     ...structuredUrls.filter(isUsable),
     ...large.map((c) => c.url),

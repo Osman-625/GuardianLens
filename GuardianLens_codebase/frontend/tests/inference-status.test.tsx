@@ -21,6 +21,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// The landing page's service notice follows the API's /health answer and never claims a mode it did
+// not confirm.
 describe("landing inference status", () => {
   it("stays neutral until health confirms the running mode", async () => {
     let resolve!: (value: ReturnType<typeof health>) => void;

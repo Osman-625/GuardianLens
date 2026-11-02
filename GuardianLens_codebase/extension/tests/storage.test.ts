@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { readSession, removeSession, tokenStore, watchSession, writeSession } from "../lib/storage";
 
+// The session-storage helpers: read, write, remove and watch a key.
 describe("session storage helpers", () => {
   it("round-trips a value", async () => {
     await writeSession("k", { a: 1 });
@@ -32,6 +33,7 @@ describe("session storage helpers", () => {
   });
 });
 
+// tokenStore keeps the API session token in session storage.
 describe("tokenStore", () => {
   it("stores, reads, and clears the session token", async () => {
     expect(await tokenStore.get()).toBeNull();

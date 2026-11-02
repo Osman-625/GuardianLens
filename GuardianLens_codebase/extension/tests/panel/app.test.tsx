@@ -83,6 +83,7 @@ function fakeDeps(storage: PanelStorage) {
   return { deps, client, openUrl, captureActiveTab };
 }
 
+// PanelApp wired to fake storage and a fake API: the whole panel from idle to result.
 describe("PanelApp", () => {
   it("starts with the idle message", async () => {
     const { storage } = fakeStorage();

@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { FEEDBACK_HEADING, FEEDBACK_OPTIONS } from "../src/copy";
 
+// The feedback wording: one question, and exactly the three verdicts the API accepts.
 describe("feedback wording", () => {
   it("asks one question", () => {
     expect(FEEDBACK_HEADING).toBe("Was this result helpful?");

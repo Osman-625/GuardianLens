@@ -1,3 +1,6 @@
+# Shortcuts for the commands used most while developing. `make check` is the quick local gate
+# (lint, types, tests, secret scan); the full list of gates, including the website build and the
+# browser tests, is in README.md and in .github/workflows/ci.yml.
 .PHONY: install install-dev api web test lint typecheck secret-scan check
 
 install:

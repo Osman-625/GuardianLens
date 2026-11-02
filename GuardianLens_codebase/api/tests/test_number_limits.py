@@ -1,5 +1,6 @@
 # Number-limit tests: a price or seller count above 10,000,000 is a 422 on that field. The saved
-# models read these as 32-bit floats, so an absurd number (1e300) used to be accepted and then make
+# models read these as 32-bit floats, so an absurd number (1e300) would pass validation and then
+# make
 # the scoring fail; the limit stops it at validation instead.
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ def submit(**overrides: str) -> tuple[int, dict[str, str]]:
 
 @pytest.mark.parametrize("price", ["1e300", "1e39", "10000001", "RM 99,999,999,999"])
 def test_an_absurd_price_is_a_422_on_the_price_field(price: str) -> None:
-    """Above 10,000,000 (including the 1e300 that used to crash the scoring) is refused."""
+    """Above 10,000,000 (including 1e300, which would crash the scoring) is refused."""
     status, error = submit(price=price)
     assert (status, error["code"], error["field"]) == (422, "invalid_price", "price")
 

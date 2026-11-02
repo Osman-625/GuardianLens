@@ -52,9 +52,13 @@ def test_a_check_cancelled_mid_run_stays_cancelled() -> None:
     """Cancel during scoring stops the run at the next stage, with no result stored."""
 
     class CancelsAfterTwoSaves(AssessmentRepository):
+        """A repository that marks the check cancelled as its second save lands, as if the buyer
+        pressed Cancel."""
+
         saves = 0
 
         def save_assessment(self, assessment: AssessmentRecord) -> None:
+            """Saves the record and, on the second save, writes an ABANDONED copy of it."""
             super().save_assessment(assessment)
             self.saves += 1
             if self.saves == 2:  # the buyer presses Cancel while the textual stage is starting

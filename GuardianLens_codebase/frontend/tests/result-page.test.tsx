@@ -1,5 +1,6 @@
 // Pins the result page's feedback form: a saved verdict shows the thank-you, and a failed request
-// puts the form back with the buyer's choice kept (it used to stay on "Saving…", disabled, forever).
+// puts the form back with the buyer's choice kept (it must not stay on "Saving…", disabled,
+// forever).
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   apiFetch: vi.fn(),
 }));
 
+// A finished result as the API returns it, with every field the page reads.
 const result = {
   assessment_id: "a1",
   title: "Used laptop",
@@ -42,6 +44,7 @@ async function openFeedbackAndChoose() {
   return { user, first };
 }
 
+// The feedback form on the result page: the thank-you after a save, and a retry after a failure.
 describe("result page feedback", () => {
   it("shows the thank-you once the verdict is saved", async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(result).mockResolvedValueOnce(undefined);

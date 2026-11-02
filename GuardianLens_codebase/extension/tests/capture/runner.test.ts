@@ -33,6 +33,7 @@ function fakeDeps(overrides: Partial<RunnerDeps> = {}) {
   return { deps, states };
 }
 
+// runCaptureForTab injects the reader only on supported marketplace pages and records every state.
 describe("runCaptureForTab", () => {
   it("does not inject anything on a site that is not a supported marketplace", async () => {
     const { deps, states } = fakeDeps();

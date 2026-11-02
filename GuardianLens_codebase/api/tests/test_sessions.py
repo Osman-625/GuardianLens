@@ -204,7 +204,7 @@ def test_claim_refuses_a_foreign_origin_even_without_a_content_type() -> None:
         response = client.post(
             "/api/v1/session/claim", content=json.dumps({"token": token}), headers=EVIL
         )
-        # 422: FastAPI no longer reads a JSON body that has no JSON Content-Type, so it stops the
+        # 422: FastAPI does not read a JSON body that has no JSON Content-Type, so it stops the
         # request before the route's own origin check (403) would. Either way nothing is claimed.
         assert response.status_code in (403, 422)
         assert "set-cookie" not in response.headers

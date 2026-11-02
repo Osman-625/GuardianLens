@@ -11,6 +11,8 @@ function apiError(status: number, code: string, message: string, field: string |
   return new GuardianLensApiError(status, { error: { code, message, field } });
 }
 
+// mapApiError turns any error from submitting or polling into a Review field error or a failure
+// screen.
 describe("mapApiError", () => {
   it("puts a field error next to its field", () => {
     const error = apiError(

@@ -52,6 +52,7 @@ function fieldOf(label: string): HTMLElement {
   return screen.getByLabelText(label).closest(".field") as HTMLElement;
 }
 
+// IdleView: what the panel says when nothing is captured, and its two ways out.
 describe("IdleView", () => {
   it("has a level-one heading, like every other view (screen readers and axe expect one)", () => {
     render(<IdleView reason="no_capture" onOpenSite={vi.fn()} onCapture={vi.fn()} />);
@@ -91,6 +92,7 @@ describe("IdleView", () => {
   });
 });
 
+// ReviewView: the captured fields, how each is labelled, and what the submit button waits for.
 describe("ReviewView", () => {
   it("says the data was captured when the buyer clicked, and names the marketplace", () => {
     renderReview();
@@ -342,6 +344,7 @@ describe("ReviewView", () => {
   });
 });
 
+// CheckingView: the five stages, the slow-wait line and Cancel.
 describe("CheckingView", () => {
   it("lists the five stages with no percentages", () => {
     render(<CheckingView stage="textual" slow={false} onCancel={vi.fn()} />);
@@ -364,6 +367,7 @@ describe("CheckingView", () => {
   });
 });
 
+// ResultView: the score region, the three cards, notices, feedback and the exits.
 describe("ResultView", () => {
   /** Renders the result view with spies. */
   function renderResult(overrides: Partial<Parameters<typeof ResultView>[0]> = {}) {
@@ -487,6 +491,7 @@ describe("ResultView", () => {
   });
 });
 
+// FailureView: the message, Try again, and the website form.
 describe("FailureView", () => {
   it("shows the message as an alert and offers a retry", async () => {
     const onRetry = vi.fn();

@@ -83,6 +83,7 @@ function fromCapture(value: string | null): DraftField {
  * all seller fields start as "not found" (they come from the seller page, if the buyer adds it).
  */
 export function draftFromListing(listing: CapturedListing): Draft {
+  // Every captured photo is listed; only the first ten start selected, the API's limit.
   const photos = listing.imageUrls.map((url, index) => ({
     url,
     selected: index < LIMITS.photos,
@@ -104,8 +105,10 @@ export function draftFromListing(listing: CapturedListing): Draft {
       activeListingCount: notFound(),
     },
     photos,
+    // The starting selection, kept so a later change can be reported as "edited".
     defaultPhotoUrls: photos.filter((photo) => photo.selected).map((photo) => photo.url),
     sellerUrl: listing.sellerUrl,
+    // The platform's own category wording, kept to show how the trained category was matched.
     pageCategory: listing.category.value,
   };
 }
@@ -183,6 +186,7 @@ export function validateDraft(draft: Draft): DraftErrors {
   const errors: DraftErrors = {};
   const { fields } = draft;
 
+  // Required text: empty asks for it, and text over a limit is an error, never a silent cut.
   const title = fields.title.value.trim();
   if (title === "") errors.title = "Enter the listing title.";
   else if (title.length > LIMITS.title) errors.title = `Use ${LIMITS.title} characters or fewer.`;
@@ -193,6 +197,7 @@ export function validateDraft(draft: Draft): DraftErrors {
     errors.description = `Use ${LIMITS.description} characters or fewer.`;
   }
 
+  // The price must be exactly one non-negative number (not a range or a word).
   const price = fields.price.value.trim();
   if (price === "") errors.price = "Enter a price, for example RM 1,250.";
   else if (parsePriceInput(price) === null)
@@ -205,6 +210,7 @@ export function validateDraft(draft: Draft): DraftErrors {
 
   if (!draft.photos.some((photo) => photo.selected)) errors.photos = "Select at least one photo.";
 
+  // Seller fields are optional: only a field that is filled in is checked.
   for (const key of ["accountAgeDays", "rating", "reviewCount", "activeListingCount"] as const) {
     const message = sellerError(key, fields[key].value);
     if (message) errors[key] = message;

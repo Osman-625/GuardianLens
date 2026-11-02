@@ -120,7 +120,7 @@ async def create_assessment(
     if session_id is None:
         # A client that sent the header but whose token is unknown (for example the server
         # restarted) must be told, so it can mint a new session and retry. Silently creating
-        # a cookie session would leave it holding a token that no longer matches anything.
+        # a cookie session would leave it holding a token that matches nothing.
         if session_header_value(request) is not None:
             raise AppError(401, "session_invalid", "Your session expired. Reconnect and try again.")
     else:

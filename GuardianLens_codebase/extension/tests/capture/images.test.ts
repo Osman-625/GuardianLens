@@ -18,6 +18,7 @@ function img(url: string, width: number, height: number): ImageCandidate {
   return { url, width, height };
 }
 
+// directoryKey is the host plus folder of a photo URL; it links a thumbnail to its full-size photo.
 describe("directoryKey", () => {
   it("is the host plus the folder, so thumbnails can be matched to their full-size photo", () => {
     expect(directoryKey(`${CDN}/a.jpg`)).toBe("media.karousell.com/photos/1/");
@@ -28,6 +29,8 @@ describe("directoryKey", () => {
   });
 });
 
+// selectGalleryImages picks the listing's own photos: ordered, de-duplicated, size-filtered,
+// capped.
 describe("selectGalleryImages", () => {
   it("puts structured-data photos first and removes duplicates", () => {
     const result = selectGalleryImages(

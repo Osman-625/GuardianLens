@@ -83,7 +83,10 @@ def test_an_oversized_upload_is_read_only_one_byte_past_the_limit() -> None:
     requested: list[int] = []
 
     class Recording(io.BytesIO):
+        """A byte stream that records the size of every read() call."""
+
         def read(self, size: int | None = -1) -> bytes:
+            """Reads from the stream and notes how many bytes were asked for."""
             requested.append(-1 if size is None else size)
             return super().read(size)
 
@@ -130,6 +133,7 @@ def test_a_normal_photo_is_decoded_in_a_worker_thread(monkeypatch: pytest.Monkey
     original = images._reencode
 
     def recording(raw: bytes, mime: str, index: int) -> tuple[bytes, int, int]:
+        """Wraps the real re-encoder and notes which thread ran it."""
         threads.append(threading.get_ident())
         return original(raw, mime, index)
 

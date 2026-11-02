@@ -29,6 +29,8 @@ const STATUS_TEXT: Record<DraftField["status"], string> = {
   edited: "Edited by you",
   not_found: "Not found. Enter it yourself.",
 };
+// The id of the helper line that says missing seller details are unknown, not suspicious.
+// An empty seller field points its aria-describedby at it, so a screen reader hears the note.
 const SELLER_NOTE_ID = "seller-unknown-note";
 // Mudah seller pages have no ratings or reviews, so for them "not found" is expected, not a miss.
 const MUDAH_NO_RATINGS = "Mudah does not show this";
