@@ -1,53 +1,70 @@
-# Python
+# Python: caches, build metadata, coverage
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.venv/
 .coverage
 htmlcov/
 
-# Node
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/coverage/
+# Python environments
+# The conda environment itself lives outside this folder (see environment.yml). These entries
+# cover a virtualenv, a prefix-style conda env, and a machine-specific copy of environment.yml.
+.venv/
+.conda/
+environment.local.yml
+condaenv.*.requirements.txt
 
 # Environment and secrets
 .env
 .env.*
 !.env.example
 
-# Runtime artefacts
+# Runtime artifacts
+# The SQLite database (data/guardianlens.sqlite3, or wherever GUARDIANLENS_DATABASE_PATH points)
+# and the journal and WAL files SQLite writes beside it. It holds study data: never commit it.
 runtime/
 *.log
 *.sqlite3
+*.sqlite3-*
 
-# Model artefacts and data
-ml/checkpoints/
-ml/artifacts/
+# Model artifacts and data
+/data/
 research/data/
 research/exports/
 
-# OS and IDE
+# Node: dependencies and build output
+# All three packages (shared, extension, frontend) are npm workspaces, so one node_modules
+# at the root is the normal case; the nested entry covers a per-package install.
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+frontend/public/downloads/
+extension/.output/
+extension/.wxt/
+*.tsbuildinfo
+
+# Browser tests and extension fixtures
+# Real fixtures hold third-party listing text and must never be committed.
+extension/fixtures/real/
+extension/playwright-report/
+extension/test-results/
+
+# Tool and assistant scratch folders
+.tmp/
+.claude/
+.superpowers/
+.agents/
+.taste-skill/
+.fallow/
+
+# OS and editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-.claude/
-.tmp/
 
-# TypeScript build cache
-*.tsbuildinfo
-
-# Browser extension, shared package, workspaces
-# node_modules and build output are generated; real fixtures hold third-party
-# listing text and must never be committed.
-node_modules/
-extension/.output/
-extension/.wxt/
-extension/fixtures/real/
-extension/playwright-report/
-extension/test-results/
-frontend/public/downloads/
+# Written by `next dev` each time it starts (agent hints for Next.js); not ours to commit
+frontend/AGENTS.md

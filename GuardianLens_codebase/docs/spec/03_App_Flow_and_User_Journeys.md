@@ -10,7 +10,7 @@
 | ID | Screen (Ch3 name) | Route (proposal) | Required content (Ch3) |
 | --- | --- | --- | --- |
 | S1 | Landing and scope | `/` | What GuardianLens checks, what it cannot guarantee, how uploaded data are handled |
-| S2 | Listing submission | `/assess` | Image upload; title, description, price, category; optional seller information; retention notice near the submit control |
+| S2 | Listing submission | `/assess` | Image upload; title, description, price, category; seller details (recommended); retention notice near the submit control |
 | S3 | Processing | `/assess/[id]/processing` | Progress across visual, textual, behavioural, fusion, and explanation stages, without exposing internal errors |
 | S4 | Assessment result | `/assess/[id]` | Overall score, risk band, three signal cards, missing-data notice, suggested checks, disclaimer |
 | S5 | Explanation details | `/assess/[id]/explanation` | Expanded reasons and evidence, including the scope of reference-image matching |
@@ -45,7 +45,7 @@ Preconditions: buyer has a Mudah.my or Carousell listing open in another tab or 
 | 1 | Tap "Check a listing" | Navigate to S2; issue session token if absent | S1→S2 |
 | 2 | Add 1 to N photos (drag-drop or file picker; camera on mobile) | Client-side type and size pre-check with immediate per-file feedback; server re-validates on submit (FR-02) | S2 |
 | 3 | Paste title and description; enter price; pick category; optionally fill seller fields | Inline validation on blur; price parsed as a number; text length caps shown as counters | S2 |
-| 4 | Tap "Assess listing" | POST `/assess`; on 422, errors point at exact fields and all valid input is preserved (Ch3 s.3.3.6); on 202, navigate to S3 | S2→S3 |
+| 4 | Tap "Check listing" | POST `/assess`; on 422, errors point at exact fields and all valid input is preserved (Ch3 s.3.3.6); on 202, navigate to S3 | S2→S3 |
 | 5 | Wait | Five-stage progress (visual → textual → behavioural → fusion → explanation) via status polling; stages the buyer can read, no internal errors surfaced; skeleton appears immediately | S3 |
 | 6 | Automatic on completion | Navigate to S4; score counts up to its value once, band and icon shown with text label; three signal cards; missing-signal notices; suggested checks; disclaimer | S3→S4 |
 | 7 | Optional: tap a signal card or "See full explanation" | Navigate to S5 with the tapped card expanded | S4→S5 |
@@ -95,7 +95,7 @@ Explicit control → destination logic. "Persistent header" = compact top bar on
 | S1 | "How it works" (secondary) | Scrolls to the three explainer blocks on S1 (no new page) |
 | S1 | "This session" | → history panel |
 | S2 | Per-file remove icon | Removes that file only |
-| S2 | "Assess listing" (primary, disabled until mandatory fields valid) | POST; → S3 on 202; inline field errors on 422 |
+| S2 | "Check listing" (primary, disabled until mandatory fields valid) | POST; → S3 on 202; inline field errors on 422 |
 | S2 | Back (header wordmark) | → S1; entered data kept for the session (draft state) |
 | S3 | (no user controls except Cancel) | Auto → S4 on completion |
 | S3 | "Cancel" | Abandons polling; → S2 pre-filled; server marks the run abandoned |

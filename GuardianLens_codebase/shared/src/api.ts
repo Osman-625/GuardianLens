@@ -54,13 +54,43 @@ export interface ClientOptions {
 // Header the API reads for the extension's session token.
 const SESSION_HEADER = "X-Session-Token";
 
-// Synthetic errors for failures that never produced a proper API error body.
+/** How long a request waits for the service to answer before it counts as unreachable. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+/** The same for the photo upload, which is much larger than any other request. */
+export const UPLOAD_TIMEOUT_MS = 120_000;
+
+// Stand-in error for a request that never reached the service (offline, wrong address, refused).
 const NETWORK_ERROR: ApiError = {
-  error: { code: "network_unreachable", message: "Can't reach the GuardianLens service.", field: null },
+  error: {
+    code: "network_unreachable",
+    message: "Can't reach the GuardianLens service.",
+    field: null,
+  },
 };
+// Stand-in error for an answer that is not the documented error body, or is not valid JSON.
 const BAD_RESPONSE: ApiError = {
-  error: { code: "bad_response", message: "The service returned an unexpected response.", field: null },
+  error: {
+    code: "bad_response",
+    message: "The service returned an unexpected response.",
+    field: null,
+  },
 };
+
+/**
+ * Reads the body of a failed response as the API's error envelope. A body that is not that
+ * envelope (an HTML error page from a proxy, plain text, nothing) gives the "bad_response" error,
+ * so a caller can always show a message and never has to handle a thrown parse error.
+ */
+export async function readApiError(response: Response): Promise<ApiError> {
+  try {
+    const body = (await response.json()) as Partial<ApiError> | null;
+    // Only trust a body that really is the documented error envelope.
+    if (body?.error?.code && body.error.message) return body as ApiError;
+  } catch {
+    // Not JSON: fall through to the stand-in below.
+  }
+  return BAD_RESPONSE;
+}
 
 /**
  * Creates an API client.
@@ -74,40 +104,42 @@ export function createClient(options: ClientOptions) {
   const doFetch: typeof fetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
   const { transport } = options;
 
-  /** Sends one request with the session attached; turns a network failure into an API error. */
-  async function send(path: string, init: RequestInit = {}): Promise<Response> {
+  /**
+   * Sends one request with the session attached; turns a network failure, or no answer within
+   * `timeoutMs`, into an API error (status 0), so a hung server cannot leave a caller waiting.
+   */
+  async function send(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<Response> {
     const headers = new Headers(init.headers);
     // JSON bodies are strings; FormData sets its own multipart header, so it is left alone.
     if (typeof init.body === "string" && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
-    const request: RequestInit = { ...init, headers };
+    const controller = new AbortController();
+    const request: RequestInit = { ...init, headers, signal: controller.signal };
     if (transport.kind === "cookie") {
       request.credentials = "include";
     } else {
       const token = await transport.store.get();
       if (token) headers.set(SESSION_HEADER, token);
     }
+    // Stopped once the answer's headers arrive: the body is small and the server is alive by then.
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await doFetch(`${baseUrl}${path}`, request);
     } catch {
       throw new GuardianLensApiError(0, NETWORK_ERROR);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   /** Parses a response: throws on error statuses, returns undefined for 204, JSON otherwise. */
   async function read<T>(response: Response): Promise<T> {
-    if (!response.ok) {
-      let payload: ApiError = BAD_RESPONSE;
-      try {
-        const body = (await response.json()) as Partial<ApiError> | null;
-        // Only trust a body that really is the documented error envelope.
-        if (body?.error?.code && body.error.message) payload = body as ApiError;
-      } catch {
-        payload = BAD_RESPONSE;
-      }
-      throw new GuardianLensApiError(response.status, payload);
-    }
+    if (!response.ok) throw new GuardianLensApiError(response.status, await readApiError(response));
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }
@@ -127,8 +159,11 @@ export function createClient(options: ClientOptions) {
    */
   async function submit(form: FormData): Promise<{ assessment_id: string }> {
     await ensureSession();
+    // One try at the upload; it is called a second time only after a stale session is replaced.
     const attempt = async () =>
-      read<{ assessment_id: string }>(await send("/api/v1/assess", { method: "POST", body: form }));
+      read<{ assessment_id: string }>(
+        await send("/api/v1/assess", { method: "POST", body: form }, UPLOAD_TIMEOUT_MS),
+      );
     try {
       return await attempt();
     } catch (error) {
@@ -162,7 +197,12 @@ export function createClient(options: ClientOptions) {
     },
     /** Saves the buyer's helpful / unclear / potentially incorrect choice. */
     async sendFeedback(id: string, body: FeedbackRequest): Promise<void> {
-      return read(await send(`/api/v1/assess/${id}/feedback`, { method: "POST", body: JSON.stringify(body) }));
+      return read(
+        await send(`/api/v1/assess/${id}/feedback`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
     },
     /** Lists this session's checks, newest first. */
     async getHistory(): Promise<HistoryItem[]> {
@@ -170,7 +210,12 @@ export function createClient(options: ClientOptions) {
     },
     /** Website only: attaches an extension session to this browser by setting the cookie. */
     async claimSession(token: string): Promise<void> {
-      return read(await send("/api/v1/session/claim", { method: "POST", body: JSON.stringify({ token }) }));
+      return read(
+        await send("/api/v1/session/claim", {
+          method: "POST",
+          body: JSON.stringify({ token }),
+        }),
+      );
     },
     /** The stored session token (header transport), or null. Used to build the handoff URL. */
     async getToken(): Promise<string | null> {

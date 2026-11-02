@@ -6,7 +6,7 @@
 - FastAPI request contract, session ownership checks, structured errors, image validation and re-encoding, PII scrub, feedback, history, development admin boundary, and tests.
 - Seven-screen Next.js source draft with responsive CSS and the required decision-support wording.
 - Supabase product, research, RLS, and storage migrations from document 05.
-- ML component contracts, bundle manifest schema, explanation-template draft, and latency-harness boundary.
+- Latency-harness boundary. (The ML component contracts, bundle manifest schema, development-stub config and explanation-template draft listed here earlier were removed on 2026-10-10: no code read them, because the API loads the trained run's `run.json` and saved models directly.)
 - Research import templates and draft study materials without generated participant or label data.
 
 ## Explicitly incomplete
@@ -19,4 +19,4 @@
 
 ## Next code-level task
 
-Wire `api/repositories/supabase.py` after P-2 and the Supabase project are confirmed. Write contract tests against a disposable migrated project before disabling `GUARDIANLENS_STUB_MODE`.
+Superseded: Supabase and the admin page were removed on 2026-10-15 (see `docs/CHANGES_FROM_SPEC.md`).

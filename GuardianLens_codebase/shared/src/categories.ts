@@ -27,20 +27,26 @@ export type TrainedCategory = (typeof TRAINED_CATEGORIES)[number];
 
 // Keyword rules, checked in this order; the first match wins. The narrower categories come
 // first on purpose: "Mobile Phones & Tablets" should resolve to Tablets only because
-// Tablets is tested before Phones, and "Smart Watches" must not fall into Phones.
+// Tablets is tested before Phones, "Smart Watches" must not fall into Phones, and "Toys &
+// Games" must reach Collectibles before the bare word "games" sends it to Gaming. A plain
+// "watch" or "computer" is NOT a keyword (a fashion watch or a PC part is priced unlike a
+// smart watch or a laptop), and accessories are never prefilled as the category (see resolveCategory).
 // "Other" has no keywords: it is only ever chosen by the buyer.
 const KEYWORDS: ReadonlyArray<readonly [Exclude<TrainedCategory, "Other">, RegExp]> = [
   ["Tablets", /\b(tablet|tablets|ipad)\b/i],
   ["Phones", /\b(phone|phones|mobile|smartphone|iphone|android)\b/i],
-  ["Wearables", /\b(wearable|wearables|smart ?watch(?:es)?|watch|watches|fitbit)\b/i],
-  ["Laptops", /\b(laptop|laptops|notebook|macbook|computer|computers)\b/i],
+  ["Wearables", /\b(wearable|wearables|smart ?watch(?:es)?|fitbit)\b/i],
+  ["Laptops", /\b(laptop|laptops|notebook|macbook)\b/i],
   ["Cameras", /\b(camera|cameras|lens|lenses|dslr|mirrorless|photography)\b/i],
   ["Audio", /\b(audio|headphones?|earphones?|earbuds|speakers?|hi-?fi)\b/i],
-  ["Gaming", /\b(gaming|game|games|console|consoles|playstation|xbox|nintendo)\b/i],
-  ["Home Appliances", /\b(appliance|appliances|kitchen|washing|refrigerator|fridge|air ?con|vacuum)\b/i],
+  [
+    "Home Appliances",
+    /\b(appliance|appliances|kitchen|washing|refrigerator|fridge|air ?con|vacuum)\b/i,
+  ],
   ["Fashion", /\b(fashion|clothing|clothes|shoes|bags?|apparel|dress|jewell?ery)\b/i],
   ["Sports", /\b(sport|sports|bicycle|bike|fitness|golf|badminton|outdoor)\b/i],
   ["Collectibles", /\b(collectible|collectibles|hobby|hobbies|toys?|figures?|trading cards?)\b/i],
+  ["Gaming", /\b(gaming|game|games|console|consoles|playstation|xbox|nintendo)\b/i],
 ];
 
 /**
@@ -64,6 +70,10 @@ export function matchTrainedCategory(text: string | null | undefined): TrainedCa
  */
 export function resolveCategory(text: string | null | undefined): string {
   if (!text) return "";
+  // A phone case is not priced like a phone: accessories keep the platform's own wording. The
+  // rule lives here, not in matchTrainedCategory, so the Mudah capture can still prefer a
+  // specific sub-category such as "Mobile Phone Accessories" over its wider top-level name.
+  if (/\baccessor(?:y|ies)\b/i.test(text)) return text.trim();
   return matchTrainedCategory(text) ?? text.trim();
 }
 

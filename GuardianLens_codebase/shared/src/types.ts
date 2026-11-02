@@ -1,7 +1,7 @@
 // Shared type definitions: the shapes the FastAPI service sends and receives, plus the
 // small "capture metadata" record the extension attaches to a submission.
-// Used by the website, the extension, and the API client. Keep these in step with
-// api/schemas.py: when a field changes there, change it here in the same commit.
+// Used by the website, the extension, and the API client. They mirror api/schemas.py, so a field
+// that changes there must change here too.
 
 /** The three risk bands the fused score maps to. */
 export type RiskBand = "low" | "moderate" | "high";
@@ -25,7 +25,8 @@ export type Platform = "mudah" | "carousell";
  * The exact hosts a listing page can be served from. The API accepts only these values in
  * capture metadata, so a listing URL can never be smuggled in through that field.
  */
-export type PlatformHost = "mudah.my" | "www.mudah.my" | "carousell.com.my" | "www.carousell.com.my";
+export type PlatformHost =
+  "mudah.my" | "www.mudah.my" | "carousell.com.my" | "www.carousell.com.my";
 
 /** The JSON body of every error response: `{ "error": { code, message, field } }`. */
 export interface ApiError {
@@ -66,7 +67,7 @@ export interface SignalCard {
 export interface AssessmentResult {
   assessment_id: string;
   title: string;
-  /** Integer from 0 to 100. Never shown with decimals. */
+  /** Integer from 0 to 100; 100 is the lowest estimated risk. Never shown with decimals. */
   score: number;
   band: RiskBand;
   signal_cards: SignalCard[];

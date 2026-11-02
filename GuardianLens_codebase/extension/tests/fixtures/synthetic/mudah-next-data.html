@@ -1,0 +1,99 @@
+<!doctype html>
+<!--
+  Synthetic Mudah listing that mirrors the structure of a live Mudah page recorded on 2026-10-06
+  (all text and ids here are invented):
+    - the JSON-LD holds only WebSite and Organization nodes (no Product);
+    - the meta description is a GENERATED sentence (title + category + place), not the seller's text;
+    - the visible page has no price for the ad, but a "You May Also Like" list full of other ads' prices;
+    - the real data sits in the embedded __NEXT_DATA__ script: the ad record appears twice (camelCase
+      and snake_case copies) and the related ads carry their own records;
+    - photos are served from rnudah.com, not mudah.my.
+-->
+<html lang="en">
+  <head>
+    <title>Used phone (fake) - Mobile Phones &amp; Gadgets for sale in Kota Kinabalu, Sabah</title>
+    <meta
+      name="description"
+      content="Used phone (fake) - Mobile Phones &amp; Gadgets for sale in Kota Kinabalu, Sabah"
+    />
+    <meta
+      property="og:description"
+      content="Used phone (fake) - Mobile Phones &amp; Gadgets for sale in Kota Kinabalu, Sabah"
+    />
+    <meta property="og:image" content="https://cdn.rnudah.com/images/plain/og-only.jpg" />
+    <script type="application/ld+json">
+      [
+        { "@context": "http://schema.org", "@type": "WebSite", "name": "Used phone (fake)", "url": "https://www.mudah.my/used-phone-123456789.htm" },
+        { "@context": "http://schema.org", "@type": "Organization", "url": "https://www.mudah.my" }
+      ]
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/malaysia/cars-for-sale">Cars</a>
+      <a href="/malaysia/mobile-phones-and-gadgets-for-sale">Mobile Phones &amp; Gadgets</a>
+    </header>
+    <main>
+      <div>Home Entire Malaysia Sabah Mobile Phones &amp; Gadgets Apple Used phone (fake)</div>
+      <h1>Used phone (fake)</h1>
+      <div>List-ID: 123456789</div>
+      <ul><li><h2>Description</h2></li><li><h2>Specification</h2></li></ul>
+      <div>FOR SALE Phone model X</div>
+      <section>
+        <h2>You May Also Like</h2>
+        <div><div>RM 599</div><div>Another phone</div></div>
+        <div><div>RM 650</div><div>A third phone</div></div>
+        <img src="https://cdn.rnudah.com/images/plain/related-1.jpg" width="300" height="300" alt="" />
+      </section>
+    </main>
+    <script id="__NEXT_DATA__" type="application/json">
+      {
+        "props": {
+          "pageProps": {
+            "initialState": {
+              "adView": {
+                "ad": {
+                  "type": "ad",
+                  "id": "123456789",
+                  "attributes": {
+                    "subject": "Used phone (fake)",
+                    "body": "FOR SALE <br>Phone model X<br>64GB &amp; box<br><br>Meet up in KK",
+                    "price": "RM 700",
+                    "oldPrice": "",
+                    "categoryName": "Mobile Phones &amp; Gadgets",
+                    "categoryParams": [
+                      { "id": "cl1", "value": "Phones", "label": "Subcategory" }
+                    ],
+                    "image": [
+                      "https://cdn.rnudah.com/images/plain/a.jpg",
+                      "https://cdn.rnudah.com/images/plain/b.jpg"
+                    ],
+                    "imageHd": [
+                      "https://cdn.rnudah.com/image_hd/plain/a.jpg",
+                      "https://cdn.rnudah.com/image_hd/plain/b.jpg"
+                    ],
+                    "profileUrl": "https://www.mudah.my/u/seller-1"
+                  }
+                },
+                "adSnake": {
+                  "type": "ad",
+                  "id": "123456789",
+                  "attributes": {
+                    "subject": "Used phone (fake)",
+                    "body": "FOR SALE <br>Phone model X<br>64GB &amp; box<br><br>Meet up in KK",
+                    "price": "RM 700",
+                    "category_name": "Mobile Phones &amp; Gadgets",
+                    "image_hd": ["https://cdn.rnudah.com/image_hd/plain/a.jpg"]
+                  }
+                },
+                "similarAds": [
+                  { "type": "ad", "id": "555000111", "attributes": { "subject": "Another phone", "price": "RM 599", "imageHd": ["https://cdn.rnudah.com/image_hd/plain/related-1.jpg"] } }
+                ]
+              }
+            }
+          }
+        }
+      }
+    </script>
+  </body>
+</html>

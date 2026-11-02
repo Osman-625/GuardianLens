@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 34 34">
+  <!-- The tab icon: the same lens ring as the extension icon. -->
+  <rect width="34" height="34" rx="8" fill="#0f1b2d" />
+  <g fill="none" stroke-width="3.2" stroke-linecap="round">
+    <circle cx="17" cy="17" r="10" stroke="#ffffff" opacity="0.22" />
+    <path d="M17 7a10 10 0 0 1 10 10" stroke="#7da0ff" />
+    <path d="M27 17a10 10 0 0 1-10 10" stroke="#ffffff" />
+  </g>
+  <circle cx="17" cy="17" r="3.2" fill="#ffffff" />
+</svg>

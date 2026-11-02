@@ -1,0 +1,280 @@
+/* Side panel layout. It adds only what the panel needs on top of the shared styles
+   (@guardianlens/shared/styles.css): one fluid column that follows the panel width, the review
+   form's photo strip and status lines, and a few spacing helpers. Colours come from the shared
+   design tokens; nothing here introduces a new colour. Direction: functionalist and calm, so the
+   panel uses borders and spacing for structure and keeps one soft shadow (the sticky submit bar). */
+
+/* The content fills whatever width the panel has, so dragging the panel's edge in Chrome resizes it. */
+.panel {
+  padding: 0 var(--space-lg) var(--space-xl);
+  font-size: var(--text-sm);
+}
+.panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 calc(-1 * var(--space-lg)) var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.panel .wordmark {
+  font-size: 1.25rem;
+}
+.panel .logo-mark {
+  width: 26px;
+  height: 26px;
+}
+.panel-title {
+  margin: 0 0 var(--space-xs);
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.panel-subtitle {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+/* A view takes a short rise-and-fade when it replaces the previous one. It runs once per state
+   change (not per keystroke), and the reduced-motion rule in the shared styles switches it off. */
+.panel main > * {
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  .panel main > * {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Vertical rhythm for the views. The grid gap spaces the fields, so the shared .field bottom
+   margin is removed inside the panel to avoid doubling it. */
+.panel-section,
+.panel-form {
+  display: grid;
+  gap: var(--space-lg);
+}
+.panel-form .field {
+  margin-bottom: 0;
+}
+/* Grid items do not collapse margins, so a paragraph's default margin would add to the gap. */
+.panel-section > p,
+.panel-form > p,
+.panel-card > h2,
+.panel-card > p,
+.panel-card > ul {
+  margin: 0;
+}
+/* A white card that groups related controls (photos, listing fields, seller details). */
+.panel-card {
+  display: grid;
+  gap: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-lg);
+}
+/* Inside a card a notice is a grey tint, never a card within a card. */
+.panel-card .notice {
+  border-color: transparent;
+  background: var(--color-surface-alt);
+}
+/* The seller group is a <details>: it keeps its summary row and gets the same card frame. */
+.panel details.optional.panel-card {
+  display: block;
+  padding: var(--space-xs) var(--space-lg) var(--space-lg);
+}
+/* At least 8px between neighbouring touch targets. A text button has 8px of side padding (so its
+   tap area is generous), so the row is pulled left by the same amount to line the LABELS up with
+   the text above them. */
+.panel-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-left: calc(-1 * var(--space-sm));
+}
+
+/* A lone text button sits at the text edge like the links above, not stretched and centred. */
+.panel-section > .button-text,
+.submit-bar > .button-text {
+  justify-self: start;
+  margin-left: calc(-1 * var(--space-sm));
+}
+
+/* The seller group is not a grid, so its parts are spaced here with the same gap as everything
+   else in the panel (the shared .field bottom margin is removed above). */
+.panel-form details.optional > :not(summary) {
+  margin-top: var(--space-lg);
+}
+
+/* The shared stylesheet gives the signal-card grid a margin on the website. In the panel the
+   section's own gap already spaces the blocks, so the margin would double it. */
+.panel-section > .signal-grid {
+  margin: 0;
+}
+/* Result cards match the notices beside them: the panel's padding and a body-size title. */
+.panel .card {
+  padding: var(--space-lg);
+}
+.panel .card h2 {
+  font-size: var(--text-base);
+}
+.panel .signal-card {
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+}
+.panel-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.panel-choices .button {
+  min-height: 44px;
+  padding-inline: var(--space-md);
+  font-size: var(--text-sm);
+}
+
+/* The start screen's "what it looks at" list, set apart from the actions above it. */
+.panel-looks {
+  display: grid;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+.panel-looks .panel-subtitle {
+  margin: 0;
+}
+
+/* A failed check: the message sits in a soft red box, with the recovery actions below it. */
+.panel-section > p.error-text {
+  margin: 0;
+  border: 1px solid var(--color-risk-high-line);
+  border-radius: var(--radius-button);
+  background: var(--color-risk-high-soft);
+  padding: var(--space-md) var(--space-lg);
+}
+/* The stage list is a card of its own while a check runs. */
+.panel .stage-list {
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-xs) var(--space-lg);
+}
+
+/* "Captured from this page" with the marketplace name: a green confirmation, in words and a tick. */
+.capture-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin: var(--space-sm) 0 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.capture-banner .icon {
+  width: 16px;
+  height: 16px;
+}
+.platform-chip {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--color-surface-tint);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* The status line under each field: Captured / Edited by you / Not found. The words carry the
+   meaning; colour only reinforces them. */
+.field-status {
+  font-size: var(--text-label);
+  color: var(--color-ink-muted);
+}
+.status-edited {
+  color: var(--color-primary);
+}
+.status-not_found {
+  color: var(--color-risk-moderate);
+  font-weight: 600;
+}
+
+/* Photo picker: as many thumbnails per row as fit (two in a narrow panel), each with a full-width
+   toggle button (44px touch target). The image height is fixed so the layout does not jump while
+   photos load. */
+.photo-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.photo-item {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+}
+.photo-item img {
+  display: block;
+  width: 100%;
+  height: 104px;
+  object-fit: cover;
+  background: var(--color-surface-alt);
+}
+.photo-selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+/* An excluded photo is dimmed, and its button says "not included" in words. */
+.photo-item:not(.photo-selected) img {
+  opacity: 0.55;
+}
+.photo-toggle {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-label);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease-out);
+}
+.photo-selected .photo-toggle {
+  color: var(--color-primary);
+}
+@media (hover: hover) and (pointer: fine) {
+  .photo-toggle:hover {
+    background: var(--color-surface-alt);
+  }
+}
+.photo-toggle:active {
+  background: var(--color-surface-tint);
+}
+
+/* The feedback choices stay neutral: band colours appear only on the score (Design Brief: Von
+   Restorff rule). */
+
+/* The submit bar (shared, sticky at the bottom) stacks its three parts with even spacing. */
+.submit-bar {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: 0;
+}

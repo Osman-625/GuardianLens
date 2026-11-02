@@ -31,8 +31,15 @@ describe("matchTrainedCategory", () => {
     ["Smart Watches", "Wearables"],
     ["Cameras & Photography", "Cameras"],
     ["Headphones", "Audio"],
+    ["Toys & Games", "Collectibles"],
+    ["Video Games & Consoles", "Gaming"],
   ])("maps %s to %s", (text, expected) => {
     expect(matchTrainedCategory(text)).toBe(expected);
+  });
+
+  // Wording that would be priced against the wrong category average is left unmatched.
+  it.each(["Men's Watches", "Computer parts"])("does not map %s", (text) => {
+    expect(matchTrainedCategory(text)).toBeNull();
   });
 
   it("returns null when nothing matches", () => {
@@ -59,6 +66,14 @@ describe("resolveCategory", () => {
   it("returns an empty string when there is no text", () => {
     expect(resolveCategory(null)).toBe("");
   });
+
+  // A phone case or camera strap is not priced like a phone or a camera.
+  it.each(["Mobile Phone Accessories", "Camera accessories"])(
+    "keeps the page's own wording for %s",
+    (text) => {
+      expect(resolveCategory(text)).toBe(text);
+    },
+  );
 });
 
 // isTrainedCategory drives the "price is compared with the overall average" note.

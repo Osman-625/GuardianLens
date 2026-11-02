@@ -11,7 +11,17 @@
 // using it. Recorded files stay local and are never committed.
 (() => {
   // Elements that must never be dropped for being "hidden" (they are not rendered anyway).
-  const SKIP_HIDING = new Set(["HTML", "HEAD", "BODY", "SCRIPT", "STYLE", "META", "LINK", "TITLE", "NOSCRIPT"]);
+  const SKIP_HIDING = new Set([
+    "HTML",
+    "HEAD",
+    "BODY",
+    "SCRIPT",
+    "STYLE",
+    "META",
+    "LINK",
+    "TITLE",
+    "NOSCRIPT",
+  ]);
   // Contact details are redacted in every text node, in case the page shows them.
   const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
   const PHONE = /(?<!\d)(?:\+?6?0?1\d[\s.-]?)\d{7,8}(?!\d)/g;
@@ -22,7 +32,8 @@
     const liveAll = Array.from(document.documentElement.querySelectorAll("*"));
     const clone = document.documentElement.cloneNode(true);
     const cloneAll = Array.from(clone.querySelectorAll("*"));
-    if (liveAll.length !== cloneAll.length) throw new Error("The page changed while cloning. Try again.");
+    if (liveAll.length !== cloneAll.length)
+      throw new Error("The page changed while cloning. Try again.");
 
     const hidden = [];
     liveAll.forEach((live, index) => {
@@ -40,24 +51,38 @@
         copy.removeAttribute("sizes");
       }
       // Elements hidden by CSS are not part of what a buyer sees, so they are dropped.
-      if (!SKIP_HIDING.has(live.tagName) && getComputedStyle(live).display === "none") hidden.push(copy);
+      if (
+        !SKIP_HIDING.has(live.tagName) &&
+        getComputedStyle(live).display === "none"
+      )
+        hidden.push(copy);
     });
     hidden.forEach((node) => node.remove());
 
     // Strip everything the adapters never read. JSON-LD scripts are kept on purpose:
     // they are one of the main data sources for title, price, and photos.
     clone
-      .querySelectorAll("script:not([type='application/ld+json']), style, noscript, iframe, svg, link[rel='stylesheet']")
+      .querySelectorAll(
+        "script:not([type='application/ld+json']), style, noscript, iframe, svg, link[rel='stylesheet']",
+      )
       .forEach((node) => node.remove());
-    clone.querySelectorAll("[style]").forEach((node) => node.removeAttribute("style"));
+    clone
+      .querySelectorAll("[style]")
+      .forEach((node) => node.removeAttribute("style"));
 
     // Redact contact details in text and drop HTML comments.
-    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT);
+    const walker = document.createTreeWalker(
+      clone,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT,
+    );
     const comments = [];
     while (walker.nextNode()) {
       const node = walker.currentNode;
       if (node.nodeType === Node.COMMENT_NODE) comments.push(node);
-      else node.nodeValue = node.nodeValue.replace(EMAIL, "[email]").replace(PHONE, "[phone]");
+      else
+        node.nodeValue = node.nodeValue
+          .replace(EMAIL, "[email]")
+          .replace(PHONE, "[phone]");
     }
     comments.forEach((node) => node.remove());
 

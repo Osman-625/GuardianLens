@@ -1,0 +1,30 @@
+# Conda environment for the GuardianLens API, tests, and trained-model serving.
+#
+# Create it once, from this folder (the paths below are relative to it), in an Anaconda terminal:
+#     conda env create -f environment.yml
+#     conda activate Guardianlens_venv
+# Update it after the dependency pins in pyproject.toml change:
+#     conda env update -f environment.yml --prune
+# Remove it to start again:
+#     conda env remove -n Guardianlens_venv
+#
+# What it installs: Python 3.13 (pyproject.toml allows 3.12 and 3.13; 3.14 is not supported) and the
+# project itself in editable mode with three extras from pyproject.toml:
+#   trained  numpy, pandas, scikit-learn, xgboost, joblib, scipy, pyyaml   (the saved T, B and fusion models)
+#   visual   torch and transformers                                        (CLIP and SSCD for the visual signal)
+#   dev      pytest, mypy, ruff                                            (tests and checks)
+# Everything the API itself needs (FastAPI, uvicorn, pydantic, pillow) comes from the
+# project's own dependencies. Versions are pinned in pyproject.toml, so this file does not repeat them.
+#
+# torch is installed from PyTorch's CPU index: serving runs on the CPU, and the CPU build is far
+# smaller than the default CUDA one. The JavaScript side (shared, extension, frontend) is separate:
+# Node 22 or newer, then `npm install` at the repository root.
+name: Guardianlens_venv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - -e .[trained,visual,dev]

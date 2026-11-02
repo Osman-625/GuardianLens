@@ -9,6 +9,7 @@ import type { SignalName } from "./types";
 
 // A session token is a UUID; anything else in "st" is ignored rather than sent to the API.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The only signal names a handoff link may ask the page to scroll to.
 const SIGNALS: ReadonlySet<string> = new Set(["visual", "textual", "behavioural"]);
 
 /** What a handoff fragment carries. Either value is null when absent or invalid. */
@@ -56,25 +57,44 @@ export function buildHandoffUrl(
 export interface ClaimDeps {
   /** The current `location.hash`. */
   hash: string;
+  /**
+   * Asks the visitor whether to link this browser to the extension's session; true means yes.
+   * It exists because anyone can craft a handoff link containing their own token: claiming
+   * silently would move the visitor into the sender's session, where the sender could later
+   * read the visitor's checks (session fixation). The dialog should say that the link should
+   * only be accepted when it came from the visitor's own GuardianLens extension.
+   */
+  confirm(): Promise<boolean>;
   /** Asks the API to attach the token's session to this browser (sets the cookie). */
   claim(token: string): Promise<void>;
   /** Rewrites the address bar's fragment without adding a history entry. */
   replaceHash(hash: string): void;
 }
 
-/** "none": no token present. "claimed": session attached. "failed": token removed, claim failed. */
-export type ClaimOutcome = "none" | "claimed" | "failed";
+/**
+ * "none": no token present. "claimed": session attached. "declined": the visitor said no (or the
+ * question could not be shown), nothing was claimed. "failed": the claim itself failed.
+ * In every case except "none" the token has already been removed from the address bar.
+ */
+export type ClaimOutcome = "none" | "claimed" | "declined" | "failed";
 
 /**
- * Performs the handoff: scrub the token from the address bar first, then claim the session.
- * Scrubbing comes first so the token is gone even if the claim throws or the page is closed.
- * A signal in the fragment is kept as an ordinary anchor (for example "#visual") so the page
- * still scrolls to that card.
+ * Performs the handoff in a fixed order: scrub the token from the address bar, ask the visitor,
+ * and only after a yes claim the session.
+ * Scrubbing comes first so the token is gone even if the visitor declines, the claim throws, or
+ * the page is closed. A signal in the fragment is kept as an ordinary anchor (for example
+ * "#visual") so the page still scrolls to that card.
  */
 export async function claimSessionFromHash(deps: ClaimDeps): Promise<ClaimOutcome> {
   const { token, signal } = parseHandoffHash(deps.hash);
   if (token === null) return "none";
   deps.replaceHash(signal ? `#${signal}` : "");
+  try {
+    // A question that cannot be shown is treated as a "no": never claim without an answer.
+    if (!(await deps.confirm())) return "declined";
+  } catch {
+    return "declined";
+  }
   try {
     await deps.claim(token);
     return "claimed";

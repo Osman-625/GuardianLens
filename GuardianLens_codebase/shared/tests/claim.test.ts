@@ -1,8 +1,10 @@
 // Pins the extension-to-website session handoff.
 // The extension opens the website at ".../explanation#st=<token>". The website must (1) accept
 // only a well-formed token, (2) remove the token from the address bar BEFORE doing anything
-// else, so it never lingers in history or a screenshot, and (3) claim the session so the
-// website sees the same checks as the extension.
+// else, so it never lingers in history or a screenshot, (3) ask the visitor to confirm, because
+// anyone can craft a link with their own token and a silent claim would put the visitor into the
+// sender's session (session fixation), and (4) only after a yes, claim the session so the website
+// sees the same checks as the extension.
 import { describe, expect, it } from "vitest";
 import { buildHandoffUrl, claimSessionFromHash, parseHandoffHash } from "../src/claim";
 
@@ -17,7 +19,10 @@ describe("parseHandoffHash", () => {
   });
 
   it("reads a known signal", () => {
-    expect(parseHandoffHash(`#st=${TOKEN}&signal=visual`)).toEqual({ token: TOKEN, signal: "visual" });
+    expect(parseHandoffHash(`#st=${TOKEN}&signal=visual`)).toEqual({
+      token: TOKEN,
+      signal: "visual",
+    });
   });
 
   it("rejects a token that is not a UUID", () => {
@@ -49,12 +54,20 @@ describe("buildHandoffUrl", () => {
   });
 });
 
-// The order of operations is the security property: scrub the address first, then claim.
+/** A confirm dependency that records that the visitor was asked, then answers `answer`. */
+const asks = (calls: string[], answer: boolean) => async () => {
+  calls.push("confirm");
+  return answer;
+};
+
+// The order of operations is the security property: scrub the address first, then ask the
+// visitor, then (only on a yes) claim.
 describe("claimSessionFromHash", () => {
-  it("does nothing when there is no token", async () => {
+  it("does nothing, and never asks, when there is no token", async () => {
     const calls: string[] = [];
     const outcome = await claimSessionFromHash({
       hash: "#visual",
+      confirm: asks(calls, true),
       claim: async () => void calls.push("claim"),
       replaceHash: () => void calls.push("replace"),
     });
@@ -62,22 +75,50 @@ describe("claimSessionFromHash", () => {
     expect(calls).toEqual([]);
   });
 
-  it("removes the token from the address before claiming", async () => {
+  it("removes the token, then asks, then claims", async () => {
     const calls: string[] = [];
     const outcome = await claimSessionFromHash({
       hash: `#st=${TOKEN}&signal=visual`,
+      confirm: asks(calls, true),
       claim: async (token) => void calls.push(`claim:${token}`),
       replaceHash: (hash) => void calls.push(`replace:${hash}`),
     });
     expect(outcome).toBe("claimed");
     // The signal survives as an ordinary anchor so the page still scrolls to that section.
-    expect(calls).toEqual(["replace:#visual", `claim:${TOKEN}`]);
+    expect(calls).toEqual(["replace:#visual", "confirm", `claim:${TOKEN}`]);
+  });
+
+  it("does not claim when the visitor declines, but the token is still removed", async () => {
+    const calls: string[] = [];
+    const outcome = await claimSessionFromHash({
+      hash: `#st=${TOKEN}`,
+      confirm: asks(calls, false),
+      claim: async (token) => void calls.push(`claim:${token}`),
+      replaceHash: (hash) => void calls.push(`replace:${hash}`),
+    });
+    expect(outcome).toBe("declined");
+    expect(calls).toEqual(["replace:", "confirm"]);
+  });
+
+  it("treats a confirmation that cannot be shown as a no", async () => {
+    const calls: string[] = [];
+    const outcome = await claimSessionFromHash({
+      hash: `#st=${TOKEN}`,
+      confirm: async () => {
+        throw new Error("no dialog");
+      },
+      claim: async (token) => void calls.push(`claim:${token}`),
+      replaceHash: (hash) => void calls.push(`replace:${hash}`),
+    });
+    expect(outcome).toBe("declined");
+    expect(calls).toEqual(["replace:"]);
   });
 
   it("still removes the token when the claim fails", async () => {
     const calls: string[] = [];
     const outcome = await claimSessionFromHash({
       hash: `#st=${TOKEN}`,
+      confirm: async () => true,
       claim: async () => {
         throw new Error("nope");
       },

@@ -1,5 +1,7 @@
 # GuardianLens: Browser Extension and Detail Site Design
 
+> Note (2026-10-15): the admin page and Supabase mentioned below were removed. See `docs/CHANGES_FROM_SPEC.md`.
+
 **Date:** 2026-10-05
 **Status:** Draft for review. Brainstormed with the developer; the four design sections below were each approved in conversation.
 **Revision (same day):** the developer directed that the trained models in `GuardianLens_Training` be used and that useful work from the Data Collector and URL Crawler be reused inside this codebase. Section 8 (model serving) is new, and sections 2, 3, 5, 9, 10, 11, and 12 changed accordingly.
@@ -118,13 +120,13 @@ Current behaviour: a session is a UUID in an httpOnly cookie, created lazily on 
 
 ### 4.2 Session handoff to the website
 
-"See full explanation" opens `/assess/{id}/explanation#st=<token>`. The page reads the URL fragment (which never reaches server logs), calls `/session/claim`, then removes the fragment with `history.replaceState`. From then on the website uses the cookie as it does today. The extension and the website share one session, so History lists checks from both.
+"See full explanation" opens `/assess/{id}/explanation#st=<token>`. The page reads the URL fragment (which never reaches server logs) and removes it at once with `history.replaceState`. It then asks the visitor to confirm linking this browser to the extension's session, and only after a yes calls `/session/claim`. The confirmation exists because anyone can craft a link with their own token; claiming silently would move the visitor into the sender's session (session fixation). From then on the website uses the cookie as it does today. The extension and the website share one session, so History lists checks from both. On the server, `/session/claim` and every cookie-authenticated write (`/assess`, cancel, feedback) refuse a browser request whose `Origin` is not one of the configured website origins, so a page on another site cannot bypass the confirmation by calling the API directly.
 
 If the backend restarts, in-memory sessions disappear. The extension treats a `not_found` response as a signal to mint a new session, not as a user-facing error.
 
 ### 4.3 Known limitation
 
-A client can mint unlimited sessions and so evade the per-session rate limit. This already holds for the cookie flow and is acceptable for a laptop-hosted prototype. Revisit with a coarse per-IP limit before any hosted deployment.
+`POST /session` needs no authentication and is not throttled, and the rate limiter is keyed by session, so every freshly minted session gets a fresh allowance. In effect the per-session rate limit does not bound a determined client at all. A client can submit as fast as it can mint (measured: 15 submissions with 15 fresh tokens all accepted), which costs the server image processing and memory (the in-memory repository keeps up to 3 re-encoded images per submission), fills the research records with arbitrary content, and grows the limiter's own bookkeeping without bound. This already holds for the cookie flow and is acceptable only while the API runs on the developer's laptop. Before any hosted deployment add a coarse per-IP limit or a global cap on minting and submission, expire idle sessions and limiter entries, and mint a session only after a submission validates. Session tokens are long-lived bearer secrets with no expiry or revocation; a hosted store should keep only a hash of each token. The `source` and `capture_meta` fields are asserted by the client, so they are self-reported telemetry for the research export, not proof of how a record was captured. See `docs/superpowers/audits/2026-10-extension-security-review.md`.
 
 ## 5. Extension UI (side panel)
 
@@ -132,7 +134,7 @@ A single column about 360 to 420 px wide, using the existing design tokens and t
 
 | State | Content |
 |---|---|
-| Not on a listing | Wordmark, "Open a Mudah.my or Carousell listing, then click the icon." Links to This session and the website. |
+| Not on a listing | Wordmark, "Open a Mudah.my or Carousell listing, then click the icon." Links to This session and the website, then a short list of what the three checks look at. |
 | Review | Up to 3 photo thumbnails (removable, swappable if more were found); editable title, price, description, platform, and category. Category is a free-text combobox prefilled with the platform's own category text, with the 12 trained categories (Phones, Gaming, Home Appliances, Laptops, Fashion, Audio, Cameras, Sports, Wearables, Tablets, Collectibles, Other) offered as suggestions and no restriction on what can be typed. When the category is not one of the trained 12, a plain note says the price is compared with the overall average rather than the category average. Each field is labelled Captured or Not found in text. A collapsed "Seller information (optional)" group states that missing seller fields are treated as unknown, not suspicious. It offers an **Add seller details** action: if the buyer opens the seller's profile page and clicks the icon there, the panel reads the seller fields from that page and merges them into the draft. This stays click-only, with no automatic navigation, and a second listing is never captured. The retention notice sits beside the sticky Check listing button. The panel states "Captured from this page when you clicked." |
 | Checking | Five labelled stages in a polite live region, a Cancel text button, an honest "taking longer than usual" line after a threshold, no percentages. |
 | Result | One bounded region holds the score, band chip, and disclaimer. Below: three compact signal cards, any missing-data notice, and the single most protective check ("Verify the seller independently, for example with Semak Mule"). Then a Was this helpful? prompt. Primary action: See full explanation. Secondary: Check another listing. |
@@ -262,3 +264,5 @@ Parser tests use the Collector's recorded examples and the real-page fixtures fr
 ## 12. Out of scope
 
 URL-paste ingestion, screenshot OCR, crawling or background capture (the Crawler's pagination, show-more, and overlay logic is not reused), LLM-based field extraction in the buyer path, platform integration, community reporting, buyer accounts, cross-login history, Facebook Marketplace, Malay UI, Chrome Web Store publication, and the hosted deployment (decided at the end of the build).
+
+*Updated 2026-11-02: the panel's wording, names and look follow `.impeccable.md` and `docs/CHANGES_FROM_SPEC.md`; a captured field shows no status line (only "Edited by you" or "Not found" do), and the three checks are Photos, Wording and Seller and price.*

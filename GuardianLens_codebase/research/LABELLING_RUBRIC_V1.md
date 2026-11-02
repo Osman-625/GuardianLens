@@ -1,4 +1,4 @@
-# GuardianLens Labeling Rubric v1
+/# GuardianLens Labeling Rubric
 
 **Status:** Draft; freeze only after supervisor approval and annotator calibration
 
